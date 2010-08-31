@@ -22,8 +22,23 @@ def sp2np (A):
         
         
 def binarize(x, threshold=0.00001, val=1):
+
+    def bin(x, threshold, val):
+        if x > threshold:
+            return val
+        if x <= threshold:
+            return 0
     
-    if x > threshold:
-        return val
-    if x <= threshold:
-        return 0
+    if type(x) in [int, float]:
+        return bin(x,threshold,val)
+    
+    if type(x) is list:
+        return [bin(i,threshold,val) for i in x] 
+    
+    if type(x) is np.ndarray:
+        x[x>threshold] = val
+        return x
+            
+        
+    
+    

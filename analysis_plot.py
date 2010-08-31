@@ -7,10 +7,11 @@ import matplotlib.pyplot as pyplot
 import matplotlib.pyplot as plt
 import scipy.linalg
 import matplotlib.patches
+import matplotlib.backends.backend_pdf as pdf
 import flydra_floris_analysis as analysis
 import pickle
 import floris
-
+from matplotlib.patches import Patch
 
 
 def load(filename, prep=True):
@@ -34,7 +35,7 @@ def save(dataset, filename):
     
     
     
-def load_raw(filename, dataset=None, center = np.array([0,0,0]), radius = 0.031/2.0, fps = None, experiment = None):
+def load_raw(filename, dataset=None, center = np.array([0,0,0]), radius = .01913/2., fps = None, experiment = None, gender = None, post_height = 0.3):
 
 
     ## experiment specific files ##
@@ -84,12 +85,14 @@ def countflies (dataset, behavior = None):
         return fly
         
     if behavior is None:
-        fly = 0
-        for k,v in dataset.trajecs.items():
-            if dataset.trajecs[k].behavior is not 'unclassified':
-                fly = fly+1
-        return fly
-        
+        behaviors = ['landing', 'flyby', 'takeoff', 'unclassified']
+        for b in behaviors:
+            fly = 0
+            for k,v in dataset.trajecs.items():
+                if dataset.trajecs[k].behavior == b:
+                    fly = fly+1
+            print b+': ', fly
+        return
         
 def print_trajectory_numbers(dataset, behavior='landing'):
     if type(behavior) is not list:
@@ -98,6 +101,13 @@ def print_trajectory_numbers(dataset, behavior='landing'):
     for k,v in dataset.trajecs.items():
         if dataset.trajecs[k].behavior in behavior:
             print k
+            
+
+def get_trajec(dataset, behavior='landing'):
+    
+    for k,v in dataset.trajecs.items():
+        if dataset.trajecs[k].behavior == behavior:
+            return k
             
 ######################  Simple Plot  ################################
 
@@ -394,20 +404,36 @@ def dist_to_post_nearest_edge ( dataset, behavior = 'landing', figure = None):
                 
 ######################  XY plot  ###########################
                 
-def xy_trajectories(dataset, behavior = 'landing', figure=None, firstfly=0, numfliestoplot=None, trajectory=None):
+def xy_trajectories(dataset, behavior = 'landing', figure=None, firstfly=0, numfliestoplot=None, trajectory=None, rotate=False, flip=False, lim=(-.06, .06), zslice=(-.2,.2), colorcode='s', norm=None):
+
+    if norm is None:
+        if colorcode == 'z':
+            norm = (-.2, 0)
+        if colorcode == 's':
+            norm = (0.02, .3)
 
     radius = dataset.stimulus.radius
-
+    
+    
+    def rotatexy(x,y,R):
+        v = np.dot(R, np.array([[x],[y]]))
+        x = v[0]
+        y = v[1]
+        return x,y
+    
+    
     if type(behavior) is not list:
         behavior = [behavior]
-    if type(trajectory) is not list:
-        trajectory = [trajectory]
+    if trajectory is not None:
+        if type(trajectory) is not list:
+            trajectory = [trajectory]
 
-    cl = colorline.Colorline(xlim=(-.1, .1), ylim = (-.1,.1), norm=(0, .2), colormap = 'jet', figure=figure)
+    cl = colorline.Colorline(xlim=lim, ylim =lim, norm=norm, colormap = 'jet', figure=figure)
     el = Ellipse((0,0), radius*2, radius*2, facecolor='grey', alpha=0.4)
     cl.ax0.add_artist(el) 
 
     if trajectory is None:
+        trajectory = []
         fly = -1
         for k,v in dataset.trajecs.items():
             if dataset.trajecs[k].behavior in behavior:
@@ -419,47 +445,80 @@ def xy_trajectories(dataset, behavior = 'landing', figure=None, firstfly=0, numf
                     if fly > firstfly+numfliestoplot:
                         break
             
-                fr_land = -1
-                if dataset.trajecs[k].behavior is 'landing':
-                    fr_land = dataset.trajecs[k].frame_of_landing
-                    el = Ellipse((dataset.trajecs[k].positions[fr_land,0], dataset.trajecs[k].positions[fr_land,1]), .001, .001, facecolor='black', alpha=1)
-                    cl.ax0.add_artist(el)
-                cl.colorline(dataset.trajecs[k].positions[0:fr_land,0]-dataset.stimulus.center[0], dataset.trajecs[k].positions[0:fr_land,1]-dataset.stimulus.center[1], dataset.trajecs[k].speed[0:fr_land],linewidth=1)
-
-        if len(behavior) is 1:
-            behaviortext = behavior[0]
-        else:
-            behaviortext = 'multiple'
-        title = 'x-y trajectories for ' + behaviortext + ' behavior'
-        cl.ax0.set_title(title)
-        cl.ax0.set_xlabel('x dimension, meters')
-        cl.ax0.set_ylabel('y dimension, meters')
-        cl.ax1.set_ylabel('3D speed, meters/sec')
+                trajectory.append(k)
                 
                 
                 
     if trajectory is not None:
         for k in trajectory:
             if dataset.trajecs[k].behavior in behavior:
+            
+                if 1:
+                    x = dataset.trajecs[k].initial_state['position'][0]
+                    y = dataset.trajecs[k].initial_state['position'][1]
+                    theta = -1*np.arctan2(y,x)
+                    R = np.array([  [np.cos(theta), -np.sin(theta)],
+                                    [np.sin(theta), np.cos(theta)]])
+                if 1: 
+                    # rotate velocity, pick y component, check sign
+                    vtheta = dataset.trajecs[k].initial_state['velocity'][1]
+                    F = np.sign(vtheta)
         
                 fr_land = -1
                 if dataset.trajecs[k].behavior is 'landing':
                     fr_land = dataset.trajecs[k].frame_of_landing
-                    el = Ellipse((dataset.trajecs[k].positions[fr_land,0], dataset.trajecs[k].positions[fr_land,1]), .001, .001, facecolor='black', alpha=1)
+                    x = dataset.trajecs[k].positions[fr_land,0]
+                    y = dataset.trajecs[k].positions[fr_land,1]
+                    if rotate:
+                        x,y = rotatexy(x,y,R)
+                    if flip:
+                        y = y*F
+                    el = Ellipse((x, y), .001, .001, facecolor='black', alpha=1)
                     cl.ax0.add_artist(el)
                     
-                el_start = Ellipse((dataset.trajecs[k].positions[0,0], dataset.trajecs[k].positions[0,1]), .001, .001, facecolor='green', edgecolor='green', alpha=1)
+                x = dataset.trajecs[k].positions[0,0]
+                y = dataset.trajecs[k].positions[0,1]
+                
+                if rotate:
+                    x,y = rotatexy(x,y,R)
+                    if flip:
+                        y = y*F
+                    
+                el_start = Ellipse((x,y), .001, .001, facecolor='green', edgecolor='green', alpha=1)
                 cl.ax0.add_artist(el_start)
                     
+                x = dataset.trajecs[k].positions[0:fr_land,0]-dataset.stimulus.center[0]
+                y = dataset.trajecs[k].positions[0:fr_land,1]-dataset.stimulus.center[1]
+                s = dataset.trajecs[k].speed[0:fr_land]
+                z = dataset.trajecs[k].positions[0:fr_land,2]-dataset.stimulus.center[2]
+                
+                if rotate:
+                    for i in range(len(x)):
+                        x[i], y[i] = rotatexy(x[i],y[i],R)
+                        if flip:
+                            y[i] = y[i]*F
+                        
+                initial_z = dataset.trajecs[k].initial_state['position'][2]
+                if  initial_z < zslice[1] and initial_z > zslice[0]:
+                    if colorcode == 'z':
+                        c = z
+                    if colorcode == 's':
+                        c = s
+                    cl.colorline(x, y, c,linewidth=1)
                     
-                cl.colorline(dataset.trajecs[k].positions[0:fr_land,0]-dataset.stimulus.center[0], dataset.trajecs[k].positions[0:fr_land,1]-dataset.stimulus.center[1], dataset.trajecs[k].speed[0:fr_land],linewidth=1)
-
         title = 'x-y trajectories for select trajectories'
         cl.ax0.set_title(title)
         cl.ax0.set_xlabel('x dimension, meters')
         cl.ax0.set_ylabel('y dimension, meters')
-        cl.ax1.set_ylabel('3D speed, meters/sec')
+        if colorcode == 'z':
+            clabel = 'z dimension, meters'
+        if colorcode == 's':
+            clabel = 'speed, meters/sec'
+        cl.ax1.set_ylabel(clabel)
                 
+    pyplot.show()
+
+    return cl
 
 ######################  RZ plot  ###########################
                 
@@ -470,14 +529,20 @@ def rz_trajectories(dataset, behavior = 'landing', figure = None, color = 'speed
 
     if type(behavior) is not list:
         behavior = [behavior]
-    if type(trajectory) is not list:
-        trajectory = [trajectory]
+    if trajectory is not None:
+        if type(trajectory) is not list:
+            trajectory = [trajectory]
         
         
     radius = dataset.stimulus.radius
-
-    cl = colorline.Colorline(xlim=(0, .14), ylim = (-.04, .08), norm=(0, .2), colormap = 'jet', figure=figure)
-    rec = Rectangle((0,-.04), radius, .04, facecolor='grey', alpha=0.4)
+    try:
+        post_height = dataset.stimulus.post_height
+    except:
+        post_height = 0.3
+        
+    #cl = colorline.Colorline(xlim=(0, .17), ylim = (-.15, .02), norm=(0, .2), colormap = 'jet', figure=figure)
+    cl = colorline.Colorline(xlim=(0, .2), ylim = (-.15, .05), norm=(0, .2), colormap = 'jet', figure=figure)
+    rec = Rectangle( (0,dataset.stimulus.center[2]), radius, -1*post_height, facecolor='grey', alpha=0.4)
     cl.ax0.add_artist(rec) 
 
     
@@ -498,14 +563,14 @@ def rz_trajectories(dataset, behavior = 'landing', figure = None, color = 'speed
                 fr_land = -1
                 if dataset.trajecs[k].behavior is 'landing':
                     fr_land = dataset.trajecs[k].frame_of_landing
-                    el = Ellipse((dataset.trajecs[k].dist_to_stim_r[fr_land]+radius, dataset.trajecs[k].dist_to_stim_z[fr_land]), .001, .001, facecolor='black', alpha=1)
+                    el = Ellipse((dataset.trajecs[k].dist_to_stim_r[fr_land]+radius, dataset.trajecs[k].positions[fr_land, 2]), .001, .001, facecolor='black', alpha=1)
                     cl.ax0.add_artist(el)
                 
                 if color is 'speed':
                     colorcode = dataset.trajecs[k].speed[0:fr_land]
                 elif color is 'error':
                     colorcode = dataset.trajecs[k].covariance_pos_sum[0:fr_land]
-                cl.colorline(dataset.trajecs[k].dist_to_stim_r[0:fr_land]+radius, dataset.trajecs[k].dist_to_stim_z[0:fr_land], colorcode,linewidth=1)
+                cl.colorline(dataset.trajecs[k].dist_to_stim_r[0:fr_land]+radius, dataset.trajecs[k].positions[0:fr_land, 2], colorcode,linewidth=1)
                 
         if len(behavior) is 1:
             behaviortext = behavior[0]
@@ -519,13 +584,13 @@ def rz_trajectories(dataset, behavior = 'landing', figure = None, color = 'speed
         
         
     if trajectory is not None:
-
+    
         for k in trajectory:
-        
+      
             if dataset.trajecs[k].behavior in behavior:
         
                 fr_land = -1
-                if dataset.trajecs[k].behavior is 'landing':
+                if dataset.trajecs[k].behavior == 'landing':
                     fr_land = dataset.trajecs[k].frame_of_landing
                     el = Ellipse((dataset.trajecs[k].dist_to_stim_r[fr_land]+radius, dataset.trajecs[k].dist_to_stim_z[fr_land]), .001, .001, facecolor='black', alpha=1)
                     cl.ax0.add_artist(el)
@@ -547,6 +612,7 @@ def rz_trajectories(dataset, behavior = 'landing', figure = None, color = 'speed
         cl.ax1.set_ylabel('3D speed, meters/sec') 
 
     
+    pyplot.show()
     
     
 ######################  probability plot  ###########################
@@ -822,7 +888,7 @@ def find_similar_trajec(dataset, master_trajectory, behavior = 'flyby', ntrajecs
         if dataset.trajecs[k].behavior in behavior:
         
             match = dataset.trajecs[k].initial_state
-            err = np.sum(np.abs(master['velocity'] - match['velocity'])) + np.abs(master['height']-match['height'])
+            err = np.sum(   np.abs(master['velocity'] - match['velocity']) + np.abs(master['height']-match['height']) + np.abs(master['angle']-match['angle']))
             
             trajec_arr.append(k)
             err_arr.append(err)
@@ -839,12 +905,40 @@ def find_similar_trajec(dataset, master_trajectory, behavior = 'flyby', ntrajecs
     return best_match, best_err, sorted_trajecs[0:ntrajecs]
             
 
-def plot_similar_trajecs(dataset, master_trajectory, behavior='flyby', ntrajecs=5):
+def plot_similar_trajecs(dataset, master_trajectory=None, behavior='flyby', rotate=True, flip=True, ntrajecs=5):
+
+    if master_trajectory is None:
+        master_trajectory = get_trajec(dataset, behavior='landing')
 
     best_match, best_err, similar_trajecs = find_similar_trajec(dataset, master_trajectory, behavior=behavior, ntrajecs=ntrajecs)
     similar_trajecs.append(master_trajectory)
-    xy_trajectories(dataset, behavior=['landing', 'flyby'], trajectory=similar_trajecs)
-    rz_trajectories(dataset, behavior=['landing', 'flyby'], trajectory=similar_trajecs)
+    
+    
+    cl = xy_trajectories(dataset, behavior=['landing', 'flyby'], trajectory=similar_trajecs, rotate=rotate, flip=flip, lim=(-.15, .15))
+    x = 0.06+dataset.stimulus.radius
+    y = 0
+    el = Ellipse((x,y), .005, .005, facecolor='red', alpha=1)
+    cl.ax0.add_artist(el) 
+    #rz_trajectories(dataset, behavior=['landing', 'flyby'], trajectory=similar_trajecs)
+    
+def pdf_similar_trajecs(dataset):
+    
+    # Initialize:
+    pp =  pdf.PdfPages('similartrajecs.pdf')
+
+    # As many times as you like, create a figure fig, then either:
+    f = 0
+    for k,v in dataset.trajecs.items():
+        if dataset.trajecs[k].behavior is 'landing':
+            f += 1
+            fig = plt.figure(f)
+            plot_similar_trajecs(dataset, master_trajectory=k, flip=True)
+            pp.savefig(fig)
+            plt.close(fig)
+
+    # Once you are done, remember to close the object:
+    pp.close()
+
 
 
 def similar_trajec_divergence(dataset):
@@ -1172,12 +1266,306 @@ def plot_timestamps (dataset, trajectory=None, behavior='landing', yval = 1, fig
     pyplot.ylabel('n')
 
         
+        
+#############################    heatmap   ###############################
+
+def heatmap (dataset, trajectory=None, behavior='landing', zslice=[-.15,0], figure=None, normalize=True, plane='xy'):
+    
+    if behavior == 'all':
+        behavior = ['landing', 'flyby', 'takeoff', 'unclassified']
+    elif type(behavior) is not list:
+        behavior = [behavior]
+        
+    radius = dataset.stimulus.radius
+    
+    xyrange = [-.1, .1]
+    zrange = [-.15, .15]
+    rrange = [0, 0.3]
+    bins = np.linspace(xyrange[0], xyrange[1], 50)
+    bins_x = bins
+    bins_y = bins
+    bins_z = np.linspace(zrange[0], zrange[1], 50)
+    bins_r = np.linspace(rrange[0], rrange[1], 100)
+    
+    residency = np.zeros([len(bins_x),len(bins_y),len(bins_z)])
+    rz_residency = np.zeros([len(bins_r), len(bins_z)])
+    
+    t = 1
+    n = 0
+    if trajectory is None:
+        for k,v in dataset.trajecs.items():
+            if dataset.trajecs[k].behavior in behavior:    
+            
+                n += 1       
+                
+                bin_assignment_x = np.searchsorted(bins_x, dataset.trajecs[k].positions[:,0])-1
+                bin_assignment_y = np.searchsorted(bins_y, dataset.trajecs[k].positions[:,1])-1
+                bin_assignment_z = np.searchsorted(bins_z, dataset.trajecs[k].positions[:,2])-1
+                radial_pos = (dataset.trajecs[k].positions[:,0]**2 + dataset.trajecs[k].positions[:,1]**2)**(0.5)
+                bin_assignment_r = np.searchsorted(bins_r, radial_pos)-1
+                
+                residency_of_trajectory = np.zeros_like(residency)
+                rz_residency_of_trajectory = np.zeros_like(rz_residency)
+                for i in range(dataset.trajecs[k].length):
+                    x = bin_assignment_x[i]
+                    y = bin_assignment_y[i]
+                    z = bin_assignment_z[i]
+                    r = bin_assignment_r[i]
+                    residency_of_trajectory[x,y,z] += 1
+                    rz_residency_of_trajectory[r,z] += 1
+         
+                # print just one trajectory for debugging
+                if t == 0:
+                    t = 1
+                    print bins_z
+                    print bin_assignment_z
+                    print dataset.trajecs[k].positions[:,2]
+                    print rz_residency_of_trajectory.sum(axis=0)
+                    
+                # plot residency, not dwell time
+                if normalize: 
+                    residency_of_trajectory = floris.binarize(residency_of_trajectory)
+                    rz_residency_of_trajectory = floris.binarize(rz_residency_of_trajectory)
+                residency += residency_of_trajectory
+                rz_residency += rz_residency_of_trajectory
+                
+    
+    
+    residency = residency[0:len(bins_x)-1, 0:len(bins_y)-1, 0:len(bins_z)-1]
+    rz_residency = rz_residency[0:len(bins_r)-1, 0:len(bins_z)-1]
+    
+    #print rz_residency.sum(axis=0)
+    
+    # if XY:
+    if plane == 'xy':
+        xy_residency = np.zeros([residency.shape[0], residency.shape[1]])
+        zslicebins = np.searchsorted(bins_z,zslice)-1
+        for i in range(zslicebins[0],zslicebins[1]):
+            xy_residency += residency[:,:,i] 
+
+        ax = pyplot.subplot(111)
+        im = pyplot.imshow(xy_residency.T, cmap=pyplot.cm.jet, extent=(xyrange[0], xyrange[1], xyrange[0], xyrange[1]), origin='lower' )
+        #im.set_interpolation('nearest')
+        #im.set_interpolation('bicubic')
+        im.set_interpolation('bilinear')
+        
+        el = Ellipse( (0,0), radius*2, radius*2, facecolor='white', edgecolor='none', alpha=0.8)
+        ax.add_artist(el)
+
+        pyplot.xlabel('x position, m')
+        pyplot.ylabel('y position, m')
+        
+    # if RZ:
+    if plane == 'rz':
+
+        ax = pyplot.subplot(111)
+        im = pyplot.imshow(rz_residency.T, cmap=pyplot.cm.jet, extent=(rrange[0], rrange[1], zrange[0], zrange[1]), origin='lower' )
+        #im.set_interpolation('nearest')
+        im.set_interpolation('bicubic')
+        #im.set_interpolation('bilinear')
+        
+        rec = Rectangle( (0,0), radius, -1*dataset.stimulus.height, facecolor='white', edgecolor='none', alpha=0.8)
+        ax.add_artist(rec)
+
+        pyplot.xlabel('r position, m')
+        pyplot.ylabel('z position, m')
+        
+    s = ', behavior: ' + behavior[0]
+        
+    if normalize:
+        s = 'flux probablity' + s
+        pyplot.title(s)
+    else:
+        s = 'dwell time probability' + s
+        pyplot.title(s)
+    show()
+
+    print 'n: ', n
+
+        
+    return rz_residency
+    
+        
+def state_heatmap (dataset, trajectory=None, behavior='landing', zslice=[-.15,0], state=None, figure=None, normalize=True, plane='xy'):
+    
+    if behavior == 'all':
+        behavior = ['landing', 'flyby', 'takeoff', 'unclassified']
+    elif type(behavior) is not list:
+        behavior = [behavior]
+        
+    radius = dataset.stimulus.radius
+    
+    xyrange = [-.1, .1]
+    zrange = [-.15, .15]
+    rrange = [0, 0.3]
+    bins = np.linspace(xyrange[0], xyrange[1], 50)
+    bins_x = bins
+    bins_y = bins
+    bins_z = np.linspace(zrange[0], zrange[1], 50)
+    bins_r = np.linspace(rrange[0], rrange[1], 100)
+    
+    residency = np.zeros([len(bins_x),len(bins_y),len(bins_z)])
+    state_heatmap = np.zeros_like(residency)
+    rz_residency = np.zeros([len(bins_r), len(bins_z)])
+    rz_state_heatmap = np.zeros_like(rz_residency)
+    
+    t = 1
+    n = 0
+    if trajectory is None:
+        for k,v in dataset.trajecs.items():
+            if dataset.trajecs[k].behavior in behavior:    
+            
+                n += 1       
+                
+                bin_assignment_x = np.searchsorted(bins_x, dataset.trajecs[k].positions[:,0])-1
+                bin_assignment_y = np.searchsorted(bins_y, dataset.trajecs[k].positions[:,1])-1
+                bin_assignment_z = np.searchsorted(bins_z, dataset.trajecs[k].positions[:,2])-1
+                radial_pos = (dataset.trajecs[k].positions[:,0]**2 + dataset.trajecs[k].positions[:,1]**2)**(0.5)
+                bin_assignment_r = np.searchsorted(bins_r, radial_pos)-1
+                
+                residency_of_trajectory = np.zeros_like(residency)
+                state_heatmap_of_trajectory = np.zeros_like(residency)
+                rz_residency_of_trajectory = np.zeros_like(rz_residency)
+                rz_state_heatmap_of_trajectory = np.zeros_like(rz_residency)
+                for i in range(dataset.trajecs[k].length):
+                    x = bin_assignment_x[i]
+                    y = bin_assignment_y[i]
+                    z = bin_assignment_z[i]
+                    r = bin_assignment_r[i]
+                    residency_of_trajectory[x,y,z] += 1
+                    state_heatmap_of_trajectory[x,y,z] += dataset.trajecs[k].__dict__[state][i]
+                    rz_residency_of_trajectory[r,z] += 1
+                    rz_state_heatmap_of_trajectory[r,z] += dataset.trajecs[k].__dict__[state][i]
+         
+                # print just one trajectory for debugging
+                if t == 0:
+                    t = 1
+                    print bins_z
+                    print bin_assignment_z
+                    print dataset.trajecs[k].positions[:,2]
+                    print rz_residency_of_trajectory.sum(axis=0)
+                    
+                residency += residency_of_trajectory
+                state_heatmap += state_heatmap_of_trajectory
+                rz_residency += rz_residency_of_trajectory
+                rz_state_heatmap += rz_state_heatmap_of_trajectory
+    
+    # normalize for residency
+    if normalize: 
+        residency += (residency==0) # set all zeros to one to prevent divide by zero (state value will be zero, so answer will still be zero)
+        state_heatmap = state_heatmap / residency
+
+        rz_residency += (rz_residency==0) # set all zeros to one to prevent divide by zero (state value will be zero, so answer will still be zero)
+        rz_state_heatmap = rz_state_heatmap / rz_residency
+            
+    state_heatmap = state_heatmap[0:len(bins_x)-1, 0:len(bins_y)-1, 0:len(bins_z)-1]
+    rz_state_heatmap = rz_state_heatmap[0:len(bins_r)-1, 0:len(bins_z)-1]
+    
+    #print rz_residency.sum(axis=0)
+    
+    # if XY:
+    if plane == 'xy':
+        xy_state_heatmap = np.zeros([state_heatmap.shape[0], state_heatmap.shape[1]])
+        zslicebins = np.searchsorted(bins_z,zslice)-1
+        for i in range(zslicebins[0],zslicebins[1]):
+            xy_state_heatmap += state_heatmap[:,:,i] 
+
+        ax = pyplot.subplot(111)
+        im = pyplot.imshow(xy_state_heatmap.T, cmap=pyplot.cm.jet, extent=(xyrange[0], xyrange[1], xyrange[0], xyrange[1]), origin='lower' )
+        #im.set_interpolation('nearest')
+        #im.set_interpolation('bicubic')
+        im.set_interpolation('bilinear')
+        
+        el = Ellipse( (0,0), radius*2, radius*2, facecolor='white', edgecolor='none', alpha=0.8)
+        ax.add_artist(el)
+
+        pyplot.xlabel('x position, m')
+        pyplot.ylabel('y position, m')
+        
+    # if RZ:
+    if plane == 'rz':
+
+        ax = pyplot.subplot(111)
+        im = pyplot.imshow(rz_state_heatmap.T, cmap=pyplot.cm.jet, extent=(rrange[0], rrange[1], zrange[0], zrange[1]), origin='lower' )
+        #im.set_interpolation('nearest')
+        im.set_interpolation('bicubic')
+        #im.set_interpolation('bilinear')
+        
+        rec = Rectangle( (0,0), radius, -1*dataset.stimulus.height, facecolor='white', edgecolor='none', alpha=0.8)
+        ax.add_artist(rec)
+
+        pyplot.xlabel('r position, m')
+        pyplot.ylabel('z position, m')
+        
+    
+    show()
+
+    print 'n: ', n
+
+        
+    return rz_state_heatmap
 
 
+def parameterize_by_dist_to_post(dataset, behavior=['landing', 'flyby']):
+    for k,v in dataset.trajecs.items():
+        if dataset.trajecs[k].behavior in behavior:    
+            dataset.trajecs[k].calc_polar_speed()
+            dataset.trajecs[k].calc_angle_to_post()
+            dataset.trajecs[k].calc_parameterize_by_dist()
+            dataset.trajecs[k].calc_initial_state(0.06)
+
+    
+def avg_landing_dist(dataset):
 
 
+    nflies = 0
+    tot_landing_dist = 0
+    for k,v in dataset.trajecs.items():
+        if dataset.trajecs[k].behavior is 'landing':
+        
+            nflies += 1
+            print dataset.trajecs[k].dist_to_stim[-1]
+            tot_landing_dist += dataset.trajecs[k].dist_to_stim[-1]
+            
+    avg_landing_dist = tot_landing_dist / float(nflies)
+    return avg_landing_dist
+    
+    
+    
+def pdf_heatmaps(dataset):
+    
+    pp =  pdf.PdfPages('heatmaps.pdf')
 
+    # As many times as you like, create a figure fig, then either:
+    f = 0
+    fig = plt.figure(f)
+    heatmap(dataset, behavior='flyby', plane='xy')
+    pp.savefig(fig)
+    plt.close(fig)
+    
+    f += 1
+    fig = plt.figure(f)
+    heatmap(dataset, behavior='flyby', plane='rz')
+    pp.savefig(fig)     
+    plt.close(fig)
+    
+    f += 1
+    fig = plt.figure(f)
+    heatmap(dataset, behavior='landing', plane='xy')
+    pp.savefig(fig)     
+    plt.close(fig)
+    
+    f += 1
+    fig = plt.figure(f)
+    heatmap(dataset, behavior='landing', plane='rz')
+    pp.savefig(fig)     
+    plt.close(fig)
 
-
+    # Once you are done, remember to close the object:
+    pp.close()
+    
+    
+    
+    
     
 

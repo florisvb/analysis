@@ -20,16 +20,17 @@ class Dataset:
         self.n_artificial_trajecs = 0
         
         self.datasets = []
+        self.filename = []
         
         
     def set_stimulus (self, stimulus):
         self.stimulus = stimulus
 
         
-    def load_data (self, filename, calibration_file = None, objs = None, obj_filelist = None, kalman_smoothing = True, fps = None, dynamic_model = None):
+    def load_data (self, filename, calibration_file = None, objs = None, obj_filelist = None, kalman_smoothing = True, fps = None, dynamic_model = None, gender = None):
     
         self.datasets.append(len(self.datasets)+1)
-        
+        self.filename.append(filename)
         
         if calibration_file is not None:
             print "Calibration Files not yet supported!!!"
@@ -54,11 +55,6 @@ class Dataset:
         if kalman_smoothing is True:
             dyn_model = dyn_model[4:]
         print 'using dynamic model: ', dyn_model
-            
-        
-
-    
-    
     
         if objs is None and obj_filelist is None:
             print "running through all object id's, this might take a while..."
@@ -68,7 +64,6 @@ class Dataset:
             obj_only = np.array(tmp[:,0], dtype='int')
         elif objs is not None:
             obj_only = np.array(objs)
-            
             
             
         print 'loading data.... '
@@ -189,7 +184,6 @@ class Dataset:
                     
         print "REMEMBER TO RUN IPYTHON USING --WTHREAD"
                 
-
     def prep_data (self, behavior = 'landing'):
     
         for k,v in self.trajecs.items():
@@ -201,7 +195,8 @@ class Dataset:
             self.trajecs[k].calc_dist_to_post_edge()
             self.trajecs[k].classify(method = 'velocity')
             self.trajecs[k].calc_polar_vel()
-            self.trajecs[k].calc_angle_to_post()
+            self.trajecs[k].calc_polar_speed()
+            #self.trajecs[k].calc_angle_to_post()
             
             
             
@@ -273,7 +268,7 @@ class Dataset:
 class Post:
 
 
-    def __init__(self, center = None, flyzone = None, radius = None, flight_buffer = None):
+    def __init__(self, center = None, flyzone = None, radius = None, flight_buffer = None, post_height = 0.3):
     
     
         # default post:
@@ -291,6 +286,7 @@ class Post:
         self.flyzone = flyzone #np.array([0,0,0])
         self.radius = radius #np.array([0,0,0])
         self.buffer = flight_buffer #0
+        self.height = post_height
         
     def dist_to_post (self, point):
     
@@ -359,7 +355,7 @@ class Trajectory:
         print len(kalman_rows)
         
         # trajectory attributes
-        self.frame_numbers = np.zeros([len(kalman_rows)])
+        self.frame_numbers = np.zeros([len(kalman_rows)], dtype=int)
         self.epoch_time = np.zeros([len(kalman_rows)])
         self.fly_time = np.zeros([len(kalman_rows)])
         self.positions = np.zeros([len(kalman_rows), 3])
@@ -425,7 +421,6 @@ class Trajectory:
             
     def calc_dist_to_stim (self):
         
-        
         self.dist_to_stim = np.zeros([self.length])
         for i in range(self.length):
             self.dist_to_stim[i] = self.stimulus.dist_to_post(self.positions[i,:])
@@ -460,7 +455,7 @@ class Trajectory:
         self.dist_to_post_top = ( (self.dist_to_stim_r-self.stimulus.radius)**2 + self.dist_to_stim_z**2)**(0.5)
         
     
-    def calc_parameterize_by_dist (self, binsize = 0.005, binrange = 0.1, bins = None, stop_at_closest_dist=True, smoothing = False, monotonic = True):
+    def calc_parameterize_by_dist (self, binsize = 0.005, binrange = 0.1, bins = None, stop_at_closest_dist=False, smoothing = False, monotonic = False):
         # note: there's a problem, we're parameterizing by distance as if the fly always flies towards the post, so if it makes a u-turn, those values will average out. 
     
         # create a list of the distances
@@ -484,16 +479,15 @@ class Trajectory:
         bin_assignment = np.searchsorted(self.bins, self.dist_to_stim)
         bin_assignment = bin_assignment-1
 
-        
         for i in range(self.length):
-            if i>self.frame_of_landing:
-                break
+            if stop_at_closest_dist is True:
+                if i>self.frame_of_landing:
+                    break
                 
             if monotonic is True:
                 if self.dp_residency[bin_assignment[i]] != 0:
                     continue
-            
-            self.dp_residency[bin_assignment[i]] = self.dp_residency[bin_assignment[i]] + floris.binarize(self.dist_to_stim[i])
+            self.dp_residency[bin_assignment[i]] += 1
             self.dp_speed[bin_assignment[i]] = self.speed[i]+self.dp_speed[bin_assignment[i]]
             self.dp_accel_1d[bin_assignment[i]] = self.accel_1d[i]+self.dp_accel_1d[bin_assignment[i]]
             self.dp_polar_vel[bin_assignment[i]] = self.polar_vel[i]+self.dp_polar_vel[bin_assignment[i]]
@@ -580,11 +574,14 @@ class Trajectory:
     
         self.initial_state = {  'velocity': self.dp_polar_vel[initial_index,:],
                                 'height': self.dp_dist_to_post_z[initial_index],
+                                'position': self.dp_positions[initial_index,:],
+                                'angle': self.dp_angle_to_post[initial_index],
+                                'dist': dist_to_post_r,
                              }
         
                 
             
-    def find_frame_of_landing (self, threshold = 0.006):
+    def find_frame_of_landing (self, threshold = 0.003):
     
         # search forward in time until we get below threshold, then check to make sure fly stays below threshold for three more frames
         
@@ -680,7 +677,12 @@ class Trajectory:
             self.polar_vel[i,1] = np.dot(self.velocities[i,0:2],theta)
             self.polar_vel[i,2] = self.velocities[i,2]
             
-            
+    def calc_polar_speed(self):
+        
+        self.polar_speed = np.zeros(self.length)
+    
+        for i in range(self.length):
+            self.polar_speed[i] = np.linalg.norm(self.polar_vel[i,1])
         
     
     def calc_polar (self):
@@ -758,15 +760,23 @@ class Trajectory:
                 # start out as unclassified
                 self.behavior = 'unknown'
                     
-                if initial_mean_vel >= flying_vel and final_mean_vel <= notmoving_vel and initial_dist-final_dist > 0.035 and final_dist < 0.01 and initial_dist > 0.03 and self.positions[0,2] > -0.04:
+                if initial_dist > 0.04 and final_dist < 0.01 and final_mean_vel < notmoving_vel:
                     self.behavior = 'landing'
                 if initial_mean_vel <= notmoving_vel and final_mean_vel >= flying_vel and initial_dist-final_dist < -0.01 and initial_dist < 0.03:
                     self.behavior = 'takeoff'
-                if initial_mean_vel >= flying_vel and final_mean_vel >= flying_vel and min_dist_to_post < 0.03 and initial_dist > 0.05 and final_dist > 0.05 and self.positions[0,2] > -.04 and self.positions[-1,2] > -0.04:
+                if min_dist_to_post < 0.03 and initial_dist > 0.04 and final_dist > 0.04:
                     self.behavior = 'flyby'                    
                 #if initial_mean_vel <= notmoving_vel and final_mean_vel <= notmoving_vel:
                 #    self.behavior = 'walking'                                       
             
+            if method is 'volume':
+                min_dist_to_post = min(self.dist_to_stim)
+                frame_of_min_dist_to_post = np.argmin(self.dist_to_stim)
+                landing_threshold = 0.005
+                landing_speed = 0.005
+                #if min_dist_to_post < landing_threshold:
+                    
+                    
                                      
     # classify: landing, take off, walking, fly by
 
