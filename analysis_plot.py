@@ -404,13 +404,15 @@ def dist_to_post_nearest_edge ( dataset, behavior = 'landing', figure = None):
                 
 ######################  XY plot  ###########################
                 
-def xy_trajectories(dataset, behavior = 'landing', figure=None, firstfly=0, numfliestoplot=None, trajectory=None, rotate=False, flip=False, lim=(-.06, .06), zslice=(-.2,.2), colorcode='s', norm=None):
+def xy_trajectories(dataset, behavior = 'landing', figure=None, firstfly=0, numfliestoplot=None, trajectory=None, rotate=False, flip=False, lim=(-.06, .06), zslice=(-.2,.2), colorcode='s', norm=None, show_sacades=False):
 
     if norm is None:
         if colorcode == 'z':
             norm = (-.2, 0)
         if colorcode == 's':
             norm = (0.02, .3)
+        if colorcode == 'r':
+            norm = (-.2, .2)
 
     radius = dataset.stimulus.radius
     
@@ -486,6 +488,12 @@ def xy_trajectories(dataset, behavior = 'landing', figure=None, firstfly=0, numf
                     
                 el_start = Ellipse((x,y), .001, .001, facecolor='green', edgecolor='green', alpha=1)
                 cl.ax0.add_artist(el_start)
+                
+                if show_sacades is True:
+                    sacades = calc_sacades(dataset, k)
+                    for sacade in sacades:
+                        el_sacade = Ellipse((sacade[0],sacade[1]), .001, .001, facecolor='red', edgecolor='red', alpha=1)
+                        cl.ax0.add_artist(el_sacade)
                     
                 x = dataset.trajecs[k].positions[0:fr_land,0]-dataset.stimulus.center[0]
                 y = dataset.trajecs[k].positions[0:fr_land,1]-dataset.stimulus.center[1]
@@ -504,6 +512,8 @@ def xy_trajectories(dataset, behavior = 'landing', figure=None, firstfly=0, numf
                         c = z
                     if colorcode == 's':
                         c = s
+                    if colorcode == 'r':
+                        c = dataset.trajecs[k].polar_vel[0:fr_land, 0]
                     cl.colorline(x, y, c,linewidth=1)
                     
         title = 'x-y trajectories for select trajectories'
@@ -514,6 +524,8 @@ def xy_trajectories(dataset, behavior = 'landing', figure=None, firstfly=0, numf
             clabel = 'z dimension, meters'
         if colorcode == 's':
             clabel = 'speed, meters/sec'
+        if colorcode == 'r':
+            clabel = 'radial vel, m/s'
         cl.ax1.set_ylabel(clabel)
                 
     pyplot.show()
@@ -1563,6 +1575,151 @@ def pdf_heatmaps(dataset):
 
     # Once you are done, remember to close the object:
     pp.close()
+    
+def pdf_sacademaps(dataset):
+    pp =  pdf.PdfPages('sacademaps.pdf')
+    
+    f = 0
+    fig = plt.figure(f)
+    sacade_heatmap(dataset, behavior='flyby',plane='xy',zslice=(-.15,.15))
+    pp.savefig(fig)
+    plt.close(fig)
+    
+    f += 1
+    fig = plt.figure(f)
+    sacade_heatmap(dataset, behavior='landing',plane='xy',zslice=(-.15,.15))
+    pp.savefig(fig)
+    plt.close(fig)
+    
+    f += 1
+    fig = plt.figure(f)
+    heatmap(dataset, behavior='flyby', plane='xy', zslice=(-.15,.15))
+    pp.savefig(fig)     
+    plt.close(fig)
+    
+    f += 1
+    fig = plt.figure(f)
+    heatmap(dataset, behavior='landing', plane='xy', zslice=(-.15,.15))
+    pp.savefig(fig)     
+    plt.close(fig)
+    
+    pp.close()
+    
+    
+def calc_sacades(dataset, trajec):
+    # find u-turns where the fly turns sharply away from the post
+    # look for places in trajectory where polar radial velocity changes from negative to positive
+    trajectory = dataset.trajecs[trajec]
+    window = 5 
+    magnitude = 0.1
+    sacades = []
+    for i in range(trajectory.length-window):
+        if i < window:
+            continue
+        old_vel = trajectory.polar_vel[i-1,0]
+        new_vel = trajectory.polar_vel[i,0]
+        if old_vel < 0:
+            if new_vel > 0:
+                # check magnitude:
+                    if trajectory.polar_vel[i-window,0] < -1*magnitude:
+                                
+                        x = trajectory.positions[i,0]
+                        y = trajectory.positions[i,1]
+                        z = trajectory.positions[i,2]
+                        sacades.append( (x,y,z) )
+                
+    return sacades
+    
+    
+def sacade_heatmap (dataset, behavior='landing', zslice=[-.15,0], plane='xy'):
+    
+    if behavior == 'all':
+        behavior = ['landing', 'flyby', 'takeoff', 'unclassified']
+    elif type(behavior) is not list:
+        behavior = [behavior]
+        
+    radius = dataset.stimulus.radius
+    
+    xyrange = [-.1, .1]
+    zrange = [-.15, .15]
+    rrange = [0, 0.3]
+    bins = np.linspace(xyrange[0], xyrange[1], 50)
+    bins_x = bins
+    bins_y = bins
+    bins_z = np.linspace(zrange[0], zrange[1], 50)
+    bins_r = np.linspace(rrange[0], rrange[1], 100)
+    
+    sacade_map = np.zeros([len(bins_x),len(bins_y),len(bins_z)])
+    sacade_map_rz = np.zeros([len(bins_r), len(bins_z)])
+    n = 0
+    for k,v in dataset.trajecs.items():
+        if dataset.trajecs[k].behavior in behavior:    
+        
+            n += 1       
+            
+            sacades = calc_sacades(dataset, k)
+            for sacade in sacades:        
+                                    
+                x = np.searchsorted(bins_x, sacade[0])-1
+                y = np.searchsorted(bins_y, sacade[1])-1
+                z = np.searchsorted(bins_z, sacade[2])-1
+                radial_pos = (sacade[0]**2 + sacade[1]**2)**(0.5)
+                r = np.searchsorted(bins_r, radial_pos)-1
+            
+                sacade_map[x,y,z] += 1
+                sacade_map_rz[r,z] += 1
+    
+    # if XY:
+    if plane == 'xy':
+        sacade_map_xy = np.zeros([sacade_map.shape[0], sacade_map.shape[1]])
+        zslicebins = np.searchsorted(bins_z,zslice)-1
+        for i in range(zslicebins[0],zslicebins[1]):
+            sacade_map_xy += sacade_map[:,:,i] 
+
+        ax = pyplot.subplot(111)
+        im = pyplot.imshow(sacade_map_xy.T, cmap=pyplot.cm.jet, extent=(xyrange[0], xyrange[1], xyrange[0], xyrange[1]), origin='lower' )
+        #im.set_interpolation('nearest')
+        im.set_interpolation('bicubic')
+        #im.set_interpolation('bilinear')
+        
+        el = Ellipse( (0,0), radius*2, radius*2, facecolor='white', edgecolor='none', alpha=0.8)
+        ax.add_artist(el)
+
+        pyplot.xlabel('x position, m')
+        pyplot.ylabel('y position, m')
+        
+    # if RZ:
+    if plane == 'rz':
+
+        ax = pyplot.subplot(111)
+        im = pyplot.imshow(sacade_map_rz.T, cmap=pyplot.cm.jet, extent=(rrange[0], rrange[1], zrange[0], zrange[1]), origin='lower' )
+        #im.set_interpolation('nearest')
+        im.set_interpolation('bicubic')
+        #im.set_interpolation('bilinear')
+        
+        rec = Rectangle( (0,0), radius, -1*dataset.stimulus.height, facecolor='white', edgecolor='none', alpha=0.8)
+        ax.add_artist(rec)
+
+        pyplot.xlabel('r position, m')
+        pyplot.ylabel('z position, m')
+        
+    title = 'sacade map, behavior: ' + behavior[0]
+    pyplot.title(title)
+        
+    
+    show()
+
+    print 'n: ', n
+
+        
+    return sacade_map
+
+    
+    
+    
+    
+    
+    
     
     
     
