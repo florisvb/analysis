@@ -11,6 +11,7 @@ import matplotlib.backends.backend_pdf as pdf
 import flydra_floris_analysis as analysis
 import pickle
 import floris
+import colorgrid
 from matplotlib.patches import Patch
 
 
@@ -404,7 +405,7 @@ def dist_to_post_nearest_edge ( dataset, behavior = 'landing', figure = None):
                 
 ######################  XY plot  ###########################
                 
-def xy_trajectories(dataset, behavior = 'landing', figure=None, firstfly=0, numfliestoplot=None, trajectory=None, rotate=False, flip=False, lim=(-.06, .06), zslice=(-.2,.2), colorcode='s', norm=None, show_sacades=False):
+def xy_trajectories(dataset, behavior = 'landing', figure=None, firstfly=0, numfliestoplot=None, trajectory=None, rotate=False, flip=False, lim=(-.06, .06), zslice=(-.2,.2), colorcode='s', norm=None, show_saccades=False, print_obj_ids=False):
 
     if norm is None:
         if colorcode == 'z':
@@ -489,11 +490,11 @@ def xy_trajectories(dataset, behavior = 'landing', figure=None, firstfly=0, numf
                 el_start = Ellipse((x,y), .001, .001, facecolor='green', edgecolor='green', alpha=1)
                 cl.ax0.add_artist(el_start)
                 
-                if show_sacades is True:
-                    sacades = calc_sacades(dataset, k)
-                    for sacade in sacades:
-                        el_sacade = Ellipse((sacade[0],sacade[1]), .001, .001, facecolor='red', edgecolor='red', alpha=1)
-                        cl.ax0.add_artist(el_sacade)
+                if show_saccades is True:
+                    saccades = calc_saccades(dataset, k)
+                    for saccade in saccades:
+                        el_saccade = Ellipse((saccade[0],saccade[1]), .001, .001, facecolor='red', edgecolor='red', alpha=1)
+                        cl.ax0.add_artist(el_saccade)
                     
                 x = dataset.trajecs[k].positions[0:fr_land,0]-dataset.stimulus.center[0]
                 y = dataset.trajecs[k].positions[0:fr_land,1]-dataset.stimulus.center[1]
@@ -515,6 +516,40 @@ def xy_trajectories(dataset, behavior = 'landing', figure=None, firstfly=0, numf
                     if colorcode == 'r':
                         c = dataset.trajecs[k].polar_vel[0:fr_land, 0]
                     cl.colorline(x, y, c,linewidth=1)
+                    
+                if print_obj_ids is True:
+                    try:
+                        tmp = textpositions[0]
+                    except:
+                        textpositions = []
+                        
+                    # search textpositions to see if our new text spot is too close: if so, move it to somewhere nearby and draw the arrow
+                    currentpos = np.array([x[-1], y[-1]])
+                    arrow = None
+                    
+                    tooclose = True
+                    while tooclose:
+                        tooclose = False
+                        for testpos in textpositions:
+                            err = currentpos-testpos
+                            err_abs = sum(np.abs(err))
+                            if err_abs < 0.01:
+                                currentpos += np.array([0.01, 0.01])
+                                arrow = dict(arrowstyle="->")
+                                print 'tooclose!', k
+                                tooclose=True
+                    
+                    textpositions.append(currentpos)
+                
+                    
+                    cl.ax0.annotate(k, (x[-1], y[-1]),
+                        xytext=currentpos,
+                        arrowprops=arrow,
+                        fontsize=4,
+                        horizontalalignment='right', verticalalignment='top')
+
+        
+        
                     
         title = 'x-y trajectories for select trajectories'
         cl.ax0.set_title(title)
@@ -925,18 +960,18 @@ def plot_similar_trajecs(dataset, master_trajectory=None, behavior='flyby', rota
     best_match, best_err, similar_trajecs = find_similar_trajec(dataset, master_trajectory, behavior=behavior, ntrajecs=ntrajecs)
     similar_trajecs.append(master_trajectory)
     
-    
-    cl = xy_trajectories(dataset, behavior=['landing', 'flyby'], trajectory=similar_trajecs, rotate=rotate, flip=flip, lim=(-.15, .15))
+    cl = xy_trajectories(dataset, behavior=['landing', 'flyby'], trajectory=similar_trajecs, rotate=rotate, flip=flip, lim=(-.15, .15), print_obj_ids=True)
     x = 0.06+dataset.stimulus.radius
     y = 0
     el = Ellipse((x,y), .005, .005, facecolor='red', alpha=1)
     cl.ax0.add_artist(el) 
+    
     #rz_trajectories(dataset, behavior=['landing', 'flyby'], trajectory=similar_trajecs)
     
 def pdf_similar_trajecs(dataset):
     
     # Initialize:
-    pp =  pdf.PdfPages('similartrajecs.pdf')
+    pp =  pdf.PdfPages('similartrajecs_with_obj_ids.pdf')
 
     # As many times as you like, create a figure fig, then either:
     f = 0
@@ -1090,6 +1125,17 @@ def feature_hist(dataset, feature_string, behavior = ['landing', 'flyby'], dista
 
 def predict_behavior(dataset, distance=0.06, method = 'all'):
 
+    # want same number of flybys as landings
+    dataset_clipped = copy.copy(dataset)
+    nlandings = countflies(dataset_clipped, behavior='landing')
+    nflybys = 0
+    for k,v in dataset_clipped.trajecs.items():
+        if dataset_clipped.trajecs[k].behavior is 'flyby':
+            if nflybys >= nlandings:
+                del(dataset_clipped.trajecs[k])
+            nflybys += 1
+            
+
     if method == 'all':
         method = ['polar vel', 'orientation']
     if type(method) is not list:
@@ -1119,11 +1165,11 @@ def predict_behavior(dataset, distance=0.06, method = 'all'):
     
     
     
-    for k,v in dataset.trajecs.items():
+    for k,v in dataset_clipped.trajecs.items():
         
-        distance_index = np.argmin(np.abs(dataset.trajecs[k].bins - distance))
+        distance_index = np.argmin(np.abs(dataset_clipped.trajecs[k].bins - distance))
         
-        if dataset.trajecs[k].dp_residency[distance_index] < 1000:
+        if dataset_clipped.trajecs[k].dp_residency[distance_index] < 1000:
         
         
             ## classifier ##
@@ -1132,38 +1178,38 @@ def predict_behavior(dataset, distance=0.06, method = 'all'):
             
             if 'polar vel' in method:
                 #print 'using polar velocity classifier'
-                if dataset.trajecs[k].dp_polar_vel[distance_index,0] > polar_threshold:
+                if dataset_clipped.trajecs[k].dp_polar_vel[distance_index,0] > polar_threshold:
                     classifier = classifier + 1
-                if dataset.trajecs[k].dp_polar_vel[distance_index,0] > np.abs(polar_threshold):
+                if dataset_clipped.trajecs[k].dp_polar_vel[distance_index,0] > np.abs(polar_threshold):
                     classifier = classifier - 1
                     
-                if dataset.trajecs[k].dp_speed[distance_index] > (speed_threshold):
+                if dataset_clipped.trajecs[k].dp_speed[distance_index] > (speed_threshold):
                     classifier = classifier - 1
                     
             if 'angular vel' in method:
                 #print 'using polar velocity classifier'
-                if np.abs(dataset.trajecs[k].dp_polar_vel[distance_index,1]) > angular_threshold:
+                if np.abs(dataset_clipped.trajecs[k].dp_polar_vel[distance_index,1]) > angular_threshold:
                     classifier = classifier - 1
                 
              
              
             if 'orientation'  in method:  
                 #print 'using orientation classifier' 
-                if dataset.trajecs[k].dp_angle_to_post[distance_index] > orientation_threshold_upper:
+                if dataset_clipped.trajecs[k].dp_angle_to_post[distance_index] > orientation_threshold_upper:
                     classifier = 0
-                if dataset.trajecs[k].dp_angle_to_post[distance_index] < orientation_threshold_lower:
+                if dataset_clipped.trajecs[k].dp_angle_to_post[distance_index] < orientation_threshold_lower:
                     classifier = 0
                     
                     
             if 'speed'  in method:  
                 #print 'using speed classifier' 
-                if dataset.trajecs[k].dp_speed[distance_index] < speed_threshold:
+                if dataset_clipped.trajecs[k].dp_speed[distance_index] < speed_threshold:
                     classifier = classifier + 1
                     
             if 'angle and vel' in method:  
-                if dataset.trajecs[k].dp_polar_vel[distance_index,1] > dataset.trajecs[k].dp_angle_to_post[distance_index]*m_pos:
+                if dataset_clipped.trajecs[k].dp_polar_vel[distance_index,1] > dataset_clipped.trajecs[k].dp_angle_to_post[distance_index]*m_pos:
                     classifier = classifier - 1
-                if dataset.trajecs[k].dp_polar_vel[distance_index,1] < dataset.trajecs[k].dp_angle_to_post[distance_index]*m_neg:
+                if dataset_clipped.trajecs[k].dp_polar_vel[distance_index,1] < dataset_clipped.trajecs[k].dp_angle_to_post[distance_index]*m_neg:
                     classifier = classifier - 1
              
                     
@@ -1175,18 +1221,18 @@ def predict_behavior(dataset, distance=0.06, method = 'all'):
                     
             
             if classifier == 1: #landing       
-                if dataset.trajecs[k].behavior is 'flyby':
+                if dataset_clipped.trajecs[k].behavior is 'flyby':
                     misclassified_trajecs.append(k)
                     classifier_matrix[0,1] = classifier_matrix[0,1]+1
-                if dataset.trajecs[k].behavior is 'landing':
+                if dataset_clipped.trajecs[k].behavior is 'landing':
                     correctlyclassified_trajecs.append(k)
                     classifier_matrix[0,0] = classifier_matrix[0,0]+1
                     
             else: # flyby
-                if dataset.trajecs[k].behavior is 'flyby':
+                if dataset_clipped.trajecs[k].behavior is 'flyby':
                     correctlyclassified_trajecs.append(k)
                     classifier_matrix[1,1] = classifier_matrix[1,1]+1
-                if dataset.trajecs[k].behavior is 'landing':
+                if dataset_clipped.trajecs[k].behavior is 'landing':
                     misclassified_trajecs.append(k)
                     classifier_matrix[1,0] = classifier_matrix[1,0]+1
 
@@ -1235,7 +1281,7 @@ def predict_behavior(dataset, distance=0.06, method = 'all'):
 #############################    plot scatter of timestamps   ###############################33
 
 
-def plot_timestamps (dataset, trajectory=None, behavior='landing', yval = 1, figure=None):
+def plot_timestamps (dataset, trajectory=None, yval = 1, figure=None):
 
     if trajectory is not None:
         if type(trajectory) is not list:
@@ -1354,42 +1400,34 @@ def heatmap (dataset, trajectory=None, behavior='landing', zslice=[-.15,0], figu
         zslicebins = np.searchsorted(bins_z,zslice)-1
         for i in range(zslicebins[0],zslicebins[1]):
             xy_residency += residency[:,:,i] 
-
-        ax = pyplot.subplot(111)
-        im = pyplot.imshow(xy_residency.T, cmap=pyplot.cm.jet, extent=(xyrange[0], xyrange[1], xyrange[0], xyrange[1]), origin='lower' )
-        #im.set_interpolation('nearest')
-        #im.set_interpolation('bicubic')
-        im.set_interpolation('bilinear')
+    
+        heatmap = colorgrid.Colorgrid(xy_residency.T, xlim=xyrange, ylim=xyrange)
         
         el = Ellipse( (0,0), radius*2, radius*2, facecolor='white', edgecolor='none', alpha=0.8)
-        ax.add_artist(el)
-
-        pyplot.xlabel('x position, m')
-        pyplot.ylabel('y position, m')
+        heatmap.ax0.add_artist(el)
+        heatmap.ax0.xlabel('x position, m')
+        heatmap.ax0.ylabel('y position, m')
+        
         
     # if RZ:
     if plane == 'rz':
 
-        ax = pyplot.subplot(111)
-        im = pyplot.imshow(rz_residency.T, cmap=pyplot.cm.jet, extent=(rrange[0], rrange[1], zrange[0], zrange[1]), origin='lower' )
-        #im.set_interpolation('nearest')
-        im.set_interpolation('bicubic')
-        #im.set_interpolation('bilinear')
+        heatmap = colorgrid.Colorgrid(rz_residency.T, xlim=rrange, ylim=zrange)
         
         rec = Rectangle( (0,0), radius, -1*dataset.stimulus.height, facecolor='white', edgecolor='none', alpha=0.8)
-        ax.add_artist(rec)
+        heatmap.ax0.add_artist(rec)
 
-        pyplot.xlabel('r position, m')
-        pyplot.ylabel('z position, m')
+        heatmap.ax0.xlabel('r position, m')
+        heatmap.ax0.ylabel('z position, m')
         
     s = ', behavior: ' + behavior[0]
         
     if normalize:
         s = 'flux probablity' + s
-        pyplot.title(s)
+        heatmap.ax0.title(s)
     else:
         s = 'dwell time probability' + s
-        pyplot.title(s)
+        heatmap.ax0.title(s)
     show()
 
     print 'n: ', n
@@ -1482,32 +1520,26 @@ def state_heatmap (dataset, trajectory=None, behavior='landing', zslice=[-.15,0]
         for i in range(zslicebins[0],zslicebins[1]):
             xy_state_heatmap += state_heatmap[:,:,i] 
 
-        ax = pyplot.subplot(111)
-        im = pyplot.imshow(xy_state_heatmap.T, cmap=pyplot.cm.jet, extent=(xyrange[0], xyrange[1], xyrange[0], xyrange[1]), origin='lower' )
-        #im.set_interpolation('nearest')
-        #im.set_interpolation('bicubic')
-        im.set_interpolation('bilinear')
+        heatmap = colorgrid.Colorgrid(xy_state_heatmap.T, xlim=xyrange, ylim=xyrange)
         
         el = Ellipse( (0,0), radius*2, radius*2, facecolor='white', edgecolor='none', alpha=0.8)
-        ax.add_artist(el)
-
+        heatmap.ax0.add_artist(el)
+        heatmap.ax0.xlabel('x position, m')
+        heatmap.ax0.ylabel('y position, m')
+        
         pyplot.xlabel('x position, m')
         pyplot.ylabel('y position, m')
         
     # if RZ:
     if plane == 'rz':
 
-        ax = pyplot.subplot(111)
-        im = pyplot.imshow(rz_state_heatmap.T, cmap=pyplot.cm.jet, extent=(rrange[0], rrange[1], zrange[0], zrange[1]), origin='lower' )
-        #im.set_interpolation('nearest')
-        im.set_interpolation('bicubic')
-        #im.set_interpolation('bilinear')
+        heatmap = colorgrid.Colorgrid(rz_state_heatmap.T, xlim=rrange, ylim=zrange)
         
         rec = Rectangle( (0,0), radius, -1*dataset.stimulus.height, facecolor='white', edgecolor='none', alpha=0.8)
-        ax.add_artist(rec)
+        heatmap.ax0.add_artist(rec)
 
-        pyplot.xlabel('r position, m')
-        pyplot.ylabel('z position, m')
+        heatmap.ax0.xlabel('r position, m')
+        heatmap.ax0.ylabel('z position, m')
         
     
     show()
@@ -1576,18 +1608,18 @@ def pdf_heatmaps(dataset):
     # Once you are done, remember to close the object:
     pp.close()
     
-def pdf_sacademaps(dataset):
-    pp =  pdf.PdfPages('sacademaps.pdf')
+def pdf_saccademaps(dataset):
+    pp =  pdf.PdfPages('saccademaps.pdf')
     
     f = 0
     fig = plt.figure(f)
-    sacade_heatmap(dataset, behavior='flyby',plane='xy',zslice=(-.15,.15))
+    saccade_heatmap(dataset, behavior='flyby',plane='xy',zslice=(-.15,.15))
     pp.savefig(fig)
     plt.close(fig)
     
     f += 1
     fig = plt.figure(f)
-    sacade_heatmap(dataset, behavior='landing',plane='xy',zslice=(-.15,.15))
+    saccade_heatmap(dataset, behavior='landing',plane='xy',zslice=(-.15,.15))
     pp.savefig(fig)
     plt.close(fig)
     
@@ -1606,32 +1638,52 @@ def pdf_sacademaps(dataset):
     pp.close()
     
     
-def calc_sacades(dataset, trajec):
+def calc_saccades(dataset, trajec, radial_filter=None):
     # find u-turns where the fly turns sharply away from the post
     # look for places in trajectory where polar radial velocity changes from negative to positive
     trajectory = dataset.trajecs[trajec]
     window = 5 
     magnitude = 0.1
-    sacades = []
+    saccades = []
     for i in range(trajectory.length-window):
         if i < window:
             continue
-        old_vel = trajectory.polar_vel[i-1,0]
-        new_vel = trajectory.polar_vel[i,0]
-        if old_vel < 0:
-            if new_vel > 0:
-                # check magnitude:
-                    if trajectory.polar_vel[i-window,0] < -1*magnitude:
-                                
-                        x = trajectory.positions[i,0]
-                        y = trajectory.positions[i,1]
-                        z = trajectory.positions[i,2]
-                        sacades.append( (x,y,z) )
+        sac = False
+        # check for local minimal velocity:
+        s1 = trajectory.speed[i-1]
+        s2 = trajectory.speed[i]
+        s3 = trajectory.speed[i+1]
+        
+        if s2 <= s1 and s2 <= s3:
+            
+            # check for an actual turn!
+            v1 = trajectory.velocities[i-window,:]
+            v1 /= np.linalg.norm(v1)
+            v2 = trajectory.velocities[i+window,:]
+            v2 /= np.linalg.norm(v2)
+            proj = np.dot(v1,v2) # if proj=1 there was no turn
+            if proj < 0.3:
                 
-    return sacades
+                if radial_filter is not None:
+                    if radial_filter == 'away':
+                        old_vel = trajectory.polar_vel[i-1,0]
+                        new_vel = trajectory.polar_vel[i+1,0]
+                        if old_vel < 0:
+                            if new_vel > 0:
+                                sac = True
+                elif radial_filter is None:
+                    sac = True
+                                
+                if sac is True:                
+                    x = trajectory.positions[i,0]
+                    y = trajectory.positions[i,1]
+                    z = trajectory.positions[i,2]
+                    saccades.append( (x,y,z) )
+                
+    return saccades
     
     
-def sacade_heatmap (dataset, behavior='landing', zslice=[-.15,0], plane='xy'):
+def saccade_heatmap (dataset, behavior='landing', zslice=[-.15,0], plane='xy'):
     
     if behavior == 'all':
         behavior = ['landing', 'flyby', 'takeoff', 'unclassified']
@@ -1649,70 +1701,66 @@ def sacade_heatmap (dataset, behavior='landing', zslice=[-.15,0], plane='xy'):
     bins_z = np.linspace(zrange[0], zrange[1], 50)
     bins_r = np.linspace(rrange[0], rrange[1], 100)
     
-    sacade_map = np.zeros([len(bins_x),len(bins_y),len(bins_z)])
-    sacade_map_rz = np.zeros([len(bins_r), len(bins_z)])
+    saccade_map = np.zeros([len(bins_x),len(bins_y),len(bins_z)])
+    saccade_map_rz = np.zeros([len(bins_r), len(bins_z)])
     n = 0
     for k,v in dataset.trajecs.items():
         if dataset.trajecs[k].behavior in behavior:    
         
             n += 1       
             
-            sacades = calc_sacades(dataset, k)
-            for sacade in sacades:        
+            saccades = calc_saccades(dataset, k, radial_filter=None)
+            for saccade in saccades:        
                                     
-                x = np.searchsorted(bins_x, sacade[0])-1
-                y = np.searchsorted(bins_y, sacade[1])-1
-                z = np.searchsorted(bins_z, sacade[2])-1
-                radial_pos = (sacade[0]**2 + sacade[1]**2)**(0.5)
+                x = np.searchsorted(bins_x, saccade[0])-1
+                y = np.searchsorted(bins_y, saccade[1])-1
+                z = np.searchsorted(bins_z, saccade[2])-1
+                radial_pos = (saccade[0]**2 + saccade[1]**2)**(0.5)
                 r = np.searchsorted(bins_r, radial_pos)-1
             
-                sacade_map[x,y,z] += 1
-                sacade_map_rz[r,z] += 1
+                saccade_map[x,y,z] += 1
+                saccade_map_rz[r,z] += 1
     
     # if XY:
     if plane == 'xy':
-        sacade_map_xy = np.zeros([sacade_map.shape[0], sacade_map.shape[1]])
+        saccade_map_xy = np.zeros([saccade_map.shape[0], saccade_map.shape[1]])
         zslicebins = np.searchsorted(bins_z,zslice)-1
         for i in range(zslicebins[0],zslicebins[1]):
-            sacade_map_xy += sacade_map[:,:,i] 
+            saccade_map_xy += saccade_map[:,:,i] 
 
-        ax = pyplot.subplot(111)
-        im = pyplot.imshow(sacade_map_xy.T, cmap=pyplot.cm.jet, extent=(xyrange[0], xyrange[1], xyrange[0], xyrange[1]), origin='lower' )
-        #im.set_interpolation('nearest')
-        im.set_interpolation('bicubic')
-        #im.set_interpolation('bilinear')
-        
+        heatmap = colorgrid.Colorgrid(saccade_map_xy.T[1:-1,0:saccade_map_xy.shape[1]-2], xlim=xyrange, ylim=xyrange)
+
         el = Ellipse( (0,0), radius*2, radius*2, facecolor='white', edgecolor='none', alpha=0.8)
-        ax.add_artist(el)
+        heatmap.ax0.add_artist(el)
 
-        pyplot.xlabel('x position, m')
-        pyplot.ylabel('y position, m')
+        heatmap.ax0.xlabel('x position, m')
+        heatmap.ax0.ylabel('y position, m')
         
     # if RZ:
     if plane == 'rz':
 
-        ax = pyplot.subplot(111)
-        im = pyplot.imshow(sacade_map_rz.T, cmap=pyplot.cm.jet, extent=(rrange[0], rrange[1], zrange[0], zrange[1]), origin='lower' )
-        #im.set_interpolation('nearest')
-        im.set_interpolation('bicubic')
-        #im.set_interpolation('bilinear')
+        heatmap = colorgrid.Colorgrid(saccade_map_rz.T[1:-1,0:saccade_map_xy.shape[1]-2], xlim=rrange, ylim=zrange)
         
         rec = Rectangle( (0,0), radius, -1*dataset.stimulus.height, facecolor='white', edgecolor='none', alpha=0.8)
-        ax.add_artist(rec)
+        heatmap.ax0.add_artist(rec)
 
-        pyplot.xlabel('r position, m')
-        pyplot.ylabel('z position, m')
+        heatmap.ax0.xlabel('r position, m')
+        heatmap.ax0.ylabel('z position, m')
         
-    title = 'sacade map, behavior: ' + behavior[0]
-    pyplot.title(title)
+    title = 'saccade map, behavior: ' + behavior[0]
+    heatmap.ax0.title(title)
         
     
     show()
 
     print 'n: ', n
 
+    if plane == 'xy':
+        return saccade_map_xy
+    if plane == 'rz':
+        return saccade_map_rz
         
-    return sacade_map
+    return saccade_map
 
     
     
