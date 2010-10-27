@@ -8,6 +8,31 @@ import matplotlib.pyplot as pyplot
 import matplotlib.patches
 import floris
 
+def load_trajectory(source=None, obj=None, num=1):
+
+    #source = '/home/floris/data/windtunnel/SA1/checkerboard/DATA20101023_135300.h5'
+    #source_type = None
+    #obj = 6061
+
+    # num refers to the prefix number - relevant if using a dataset class
+
+    if source.__class__ is Dataset:
+        source_type = 'dataset'
+    else:
+        kalman_smoothing = True
+        objs = None
+        
+        dataset = Dataset()
+        dataset.load_data(filename = source, kalman_smoothing = kalman_smoothing, objs=obj)
+        source_type = 'h5_file'
+            
+    if source_type is None:
+        raise ValueError('please enter a valid source_type: .h5 file or dataset class')
+
+    obj = str(num) + '_' + str(obj)
+    trajectory = dataset.trajecs[obj]
+    
+    return trajectory
 
 class Dataset:
 
@@ -63,13 +88,14 @@ class Dataset:
             tmp = np.loadtxt(obj_filelist,delimiter=',')
             obj_only = np.array(tmp[:,0], dtype='int')
         elif objs is not None:
+            if type(objs) is not list:
+                objs = [objs] 
             obj_only = np.array(objs)
             
             
         print 'loading data.... '
         for obj_id in obj_only:
         
-            
             try: 
                 # kalman rows = [
                 kalman_rows =  ca.load_data( obj_id, data_file,
@@ -760,7 +786,7 @@ class Trajectory:
                 # start out as unclassified
                 self.behavior = 'unknown'
                     
-                if initial_dist > 0.04 and final_dist < 0.01 and final_mean_vel < notmoving_vel:
+                if initial_dist > 0.04 and final_dist < 0.01 and final_mean_vel < notmoving_vel and initial_mean_vel > notmoving_vel:
                     self.behavior = 'landing'
                 if initial_mean_vel <= notmoving_vel and final_mean_vel >= flying_vel and initial_dist-final_dist < -0.01 and initial_dist < 0.03:
                     self.behavior = 'takeoff'
