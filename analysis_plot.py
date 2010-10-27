@@ -36,7 +36,7 @@ def save(dataset, filename):
     
     
     
-def load_raw(filename, dataset=None, center = np.array([0,0,0]), radius = .01913/2., fps = None, experiment = None, gender = None, post_height = 0.3):
+def load_raw(filename, dataset=None, center = np.array([0,0,0]), radius = .01913/2., fps = None, experiment = None, gender = None, post_height = 0.3, kalman_smoothing = True, objs = None):
 
 
     ## experiment specific files ##
@@ -57,7 +57,7 @@ def load_raw(filename, dataset=None, center = np.array([0,0,0]), radius = .01913
         post = analysis.Post(center, flyzone, radius, flight_buffer)
         dataset.set_stimulus(post)
         
-    dataset.load_data(filename = filename, fps = fps)
+    dataset.load_data(filename = filename, fps = fps, kalman_smoothing = kalman_smoothing, objs=None)
 
     return dataset
     
@@ -104,11 +104,13 @@ def print_trajectory_numbers(dataset, behavior='landing'):
             print k
             
 
-def get_trajec(dataset, behavior='landing'):
-    
+def get_trajec(dataset, behavior='landing', n=0):
+    num = 0
     for k,v in dataset.trajecs.items():
         if dataset.trajecs[k].behavior == behavior:
-            return k
+            num += 1
+            if num > n:
+                return k
             
 ######################  Simple Plot  ################################
 
@@ -403,13 +405,41 @@ def dist_to_post_nearest_edge ( dataset, behavior = 'landing', figure = None):
     pyplot.show()
                 
                 
+######################  reverse search for dist to post  ###########################
+                
+def search_dist_to_post_r(dataset, trajectory, distance):
+    distance = np.ones_like(dataset.trajecs[trajectory].dist_to_stim_r)*distance
+    metric = np.abs(distance - dataset.trajecs[trajectory].dist_to_stim_r)
+    #print metric
+
+    if 0: # works, but inelegant, could also check to make sure fly is flying towards the post    
+        d_metric = np.diff(metric)
+        min_of_metric = 100
+        for i in range(1,len(metric)-2):
+            d1 = d_metric[i-1]
+            d2 = d_metric[i]
+            d3 = d_metric[i+1]
+            if d2 <= d1 and d2 <= d3 and metric[i] < 0.01:
+                return i
+    if 1:        
+        indices = np.argsort(metric)
+        for i, enum in enumerate(indices):
+            if dataset.trajecs[trajectory].polar_vel[enum,0] < 0:
+                #print enum, metric[enum], dataset.trajecs[trajectory].polar_vel[enum,0]
+                return enum
+    
+        
+    
+    #print 'xy: ', dataset.trajecs[trajectory].positions[min_index], dataset.trajecs[trajectory].dist_to_stim_r[min_index]
+    return 0
+                
 ######################  XY plot  ###########################
                 
-def xy_trajectories(dataset, behavior = 'landing', figure=None, firstfly=0, numfliestoplot=None, trajectory=None, rotate=False, flip=False, lim=(-.06, .06), zslice=(-.2,.2), colorcode='s', norm=None, show_saccades=False, print_obj_ids=False):
+def xy_trajectories(dataset, behavior = 'landing', figure=None, firstfly=0, numfliestoplot=None, trajectory=None, rotate=False, flip=False, lim=(-.15, .15), zslice=(-.2,.2), colorcode='s', norm=None, show_saccades=False, print_obj_ids=False, dist_to_post=0.06, fontsize=8, saccade_threshold=0.3):
 
     if norm is None:
         if colorcode == 'z':
-            norm = (-.2, 0)
+            norm = (zslice[0], zslice[1])
         if colorcode == 's':
             norm = (0.02, .3)
         if colorcode == 'r':
@@ -425,11 +455,16 @@ def xy_trajectories(dataset, behavior = 'landing', figure=None, firstfly=0, numf
         return x,y
     
     
-    if type(behavior) is not list:
-        behavior = [behavior]
     if trajectory is not None:
         if type(trajectory) is not list:
             trajectory = [trajectory]
+        behavior = 'all'
+                    
+    if behavior == 'all':
+        behavior = ['landing', 'flyby']
+    if type(behavior) is not list:
+        behavior = [behavior]
+    
 
     cl = colorline.Colorline(xlim=lim, ylim =lim, norm=norm, colormap = 'jet', figure=figure)
     el = Ellipse((0,0), radius*2, radius*2, facecolor='grey', alpha=0.4)
@@ -456,16 +491,26 @@ def xy_trajectories(dataset, behavior = 'landing', figure=None, firstfly=0, numf
         for k in trajectory:
             if dataset.trajecs[k].behavior in behavior:
             
-                if 1:
-                    x = dataset.trajecs[k].initial_state['position'][0]
-                    y = dataset.trajecs[k].initial_state['position'][1]
+                if 'unclassified' not in behavior:
+                    index = search_dist_to_post_r(dataset, k, dist_to_post)
+                    x = dataset.trajecs[k].positions[index][0]
+                    y = dataset.trajecs[k].positions[index][1]
                     theta = -1*np.arctan2(y,x)
                     R = np.array([  [np.cos(theta), -np.sin(theta)],
                                     [np.sin(theta), np.cos(theta)]])
-                if 1: 
+                    #el = Ellipse((x, y), .002, .002, facecolor='blue', alpha=1)
+                    #cl.ax0.add_artist(el)
+                    
+                if 'unclassified' not in behavior:
                     # rotate velocity, pick y component, check sign
-                    vtheta = dataset.trajecs[k].initial_state['velocity'][1]
-                    F = np.sign(vtheta)
+                    velx = dataset.trajecs[k].velocities[:,0]  
+                    vely = dataset.trajecs[k].velocities[:,1]
+                    velx_rot = np.ones_like(velx)
+                    vely_rot = np.ones_like(vely)
+                    for i in range(len(velx)):
+                        velx_rot[i], vely_rot[i] = rotatexy(velx[i], vely[i], R)
+                    Fx = np.sign(velx_rot[index])
+                    Fy = np.sign(vely_rot[index])
         
                 fr_land = -1
                 if dataset.trajecs[k].behavior is 'landing':
@@ -475,7 +520,7 @@ def xy_trajectories(dataset, behavior = 'landing', figure=None, firstfly=0, numf
                     if rotate:
                         x,y = rotatexy(x,y,R)
                     if flip:
-                        y = y*F
+                        y = y*Fy
                     el = Ellipse((x, y), .001, .001, facecolor='black', alpha=1)
                     cl.ax0.add_artist(el)
                     
@@ -485,13 +530,13 @@ def xy_trajectories(dataset, behavior = 'landing', figure=None, firstfly=0, numf
                 if rotate:
                     x,y = rotatexy(x,y,R)
                     if flip:
-                        y = y*F
+                        y = y*Fy
                     
                 el_start = Ellipse((x,y), .001, .001, facecolor='green', edgecolor='green', alpha=1)
                 cl.ax0.add_artist(el_start)
                 
                 if show_saccades is True:
-                    saccades = calc_saccades(dataset, k)
+                    saccades = calc_saccades(dataset, k, threshold=saccade_threshold)
                     for saccade in saccades:
                         el_saccade = Ellipse((saccade[0],saccade[1]), .001, .001, facecolor='red', edgecolor='red', alpha=1)
                         cl.ax0.add_artist(el_saccade)
@@ -505,9 +550,16 @@ def xy_trajectories(dataset, behavior = 'landing', figure=None, firstfly=0, numf
                     for i in range(len(x)):
                         x[i], y[i] = rotatexy(x[i],y[i],R)
                         if flip:
-                            y[i] = y[i]*F
-                        
-                initial_z = dataset.trajecs[k].initial_state['position'][2]
+                            y[i] = y[i]*Fy
+                    if 0:
+                        for i in range(len(x)):
+                            x[i], y[i] = rotatexy(x[i],y[i],R2)
+                        if flip:
+                            y[i] = y[i]*Fy
+                try:
+                    initial_z = dataset.trajecs[k].initial_state['position'][2]
+                except:
+                    initial_z = 0
                 if  initial_z < zslice[1] and initial_z > zslice[0]:
                     if colorcode == 'z':
                         c = z
@@ -545,7 +597,7 @@ def xy_trajectories(dataset, behavior = 'landing', figure=None, firstfly=0, numf
                     cl.ax0.annotate(k, (x[-1], y[-1]),
                         xytext=currentpos,
                         arrowprops=arrow,
-                        fontsize=4,
+                        fontsize=fontsize,
                         horizontalalignment='right', verticalalignment='top')
 
         
@@ -920,12 +972,13 @@ def speed_vs_r (dataset, behavior = 'flyby', figure = None, firstfly=0, numflies
 # find a trajectory of behavior 'behavior' that most closely matches the master_trajectory
 # uses the initial state from the trajectory class for comparisons
 
-def find_similar_trajec(dataset, master_trajectory, behavior = 'flyby', ntrajecs=5):
+def find_similar_trajec(dataset, master_trajectory, behavior = 'flyby', ntrajecs=5, distance=0.06):
     if type(behavior) is not list:
         behavior = [behavior]
-
-    master = dataset.trajecs[master_trajectory].initial_state
-
+    
+    master = master_trajectory
+    index = search_dist_to_post_r(dataset, master, distance)
+    initial_state_master = np.array([dataset.trajecs[master].angle_to_post[index], dataset.trajecs[master].speed[index]])
 
     best_match = ''
     best_err = 100
@@ -934,8 +987,10 @@ def find_similar_trajec(dataset, master_trajectory, behavior = 'flyby', ntrajecs
     for k,v in dataset.trajecs.items():
         if dataset.trajecs[k].behavior in behavior:
         
-            match = dataset.trajecs[k].initial_state
-            err = np.sum(   np.abs(master['velocity'] - match['velocity']) + np.abs(master['height']-match['height']) + np.abs(master['angle']-match['angle']))
+            index = search_dist_to_post_r(dataset, k, distance)
+            initial_state_match = np.array([dataset.trajecs[k].angle_to_post[index], dataset.trajecs[k].speed[index]])
+        
+            err = np.sum( np.abs( initial_state_master - initial_state_master )  )
             
             trajec_arr.append(k)
             err_arr.append(err)
@@ -952,15 +1007,15 @@ def find_similar_trajec(dataset, master_trajectory, behavior = 'flyby', ntrajecs
     return best_match, best_err, sorted_trajecs[0:ntrajecs]
             
 
-def plot_similar_trajecs(dataset, master_trajectory=None, behavior='flyby', rotate=True, flip=True, ntrajecs=5):
+def plot_similar_trajecs(dataset, master_trajectory=None, behavior='flyby', rotate=True, flip=True, ntrajecs=5, n=0, figure=None):
 
     if master_trajectory is None:
-        master_trajectory = get_trajec(dataset, behavior='landing')
+        master_trajectory = get_trajec(dataset, behavior='landing', n=n)
 
     best_match, best_err, similar_trajecs = find_similar_trajec(dataset, master_trajectory, behavior=behavior, ntrajecs=ntrajecs)
     similar_trajecs.append(master_trajectory)
     
-    cl = xy_trajectories(dataset, behavior=['landing', 'flyby'], trajectory=similar_trajecs, rotate=rotate, flip=flip, lim=(-.15, .15), print_obj_ids=True)
+    cl = xy_trajectories(dataset, behavior=['landing', 'flyby'], trajectory=similar_trajecs, rotate=rotate, flip=flip, lim=(-.15, .15), print_obj_ids=True, figure=figure)
     x = 0.06+dataset.stimulus.radius
     y = 0
     el = Ellipse((x,y), .005, .005, facecolor='red', alpha=1)
@@ -978,10 +1033,9 @@ def pdf_similar_trajecs(dataset):
     for k,v in dataset.trajecs.items():
         if dataset.trajecs[k].behavior is 'landing':
             f += 1
-            fig = plt.figure(f)
-            plot_similar_trajecs(dataset, master_trajectory=k, flip=True)
-            pp.savefig(fig)
-            plt.close(fig)
+            plot_similar_trajecs(dataset, master_trajectory=k, flip=True, figure=f)
+            pp.savefig(f)
+            plt.close(f)
 
     # Once you are done, remember to close the object:
     pp.close()
@@ -997,8 +1051,6 @@ def similar_trajec_divergence(dataset):
             
             if error > 0.05:
                 continue
-                
-            
             
             # for each attribute, plot error between match and master vs. bins
             err_polar_vel_r = np.abs(dataset.trajecs[master].dp_polar_vel[:,0] - dataset.trajecs[match].dp_polar_vel[:,0])
@@ -1009,9 +1061,6 @@ def similar_trajec_divergence(dataset):
             
             fig=plt.figure(1)
             plt.plot(dataset.trajecs[master].bins,err_polar_vel_r)
-            
-            
-            
             
             
             
@@ -1327,7 +1376,7 @@ def plot_timestamps (dataset, trajectory=None, yval = 1, figure=None):
         
 #############################    heatmap   ###############################
 
-def heatmap (dataset, trajectory=None, behavior='landing', zslice=[-.15,0], figure=None, normalize=True, plane='xy'):
+def heatmap (dataset, trajectory=None, behavior='landing', zslice=[-.15,0], figure=None, normalize=True, plane='xy', color_label='number of flies'):
     
     if behavior == 'all':
         behavior = ['landing', 'flyby', 'takeoff', 'unclassified']
@@ -1336,14 +1385,14 @@ def heatmap (dataset, trajectory=None, behavior='landing', zslice=[-.15,0], figu
         
     radius = dataset.stimulus.radius
     
-    xyrange = [-.1, .1]
+    xyrange = [-.15, .15]
     zrange = [-.15, .15]
-    rrange = [0, 0.3]
+    rrange = [0, 0.15]
     bins = np.linspace(xyrange[0], xyrange[1], 50)
     bins_x = bins
     bins_y = bins
     bins_z = np.linspace(zrange[0], zrange[1], 50)
-    bins_r = np.linspace(rrange[0], rrange[1], 100)
+    bins_r = np.linspace(rrange[0], rrange[1], 25)
     
     residency = np.zeros([len(bins_x),len(bins_y),len(bins_z)])
     rz_residency = np.zeros([len(bins_r), len(bins_z)])
@@ -1351,43 +1400,47 @@ def heatmap (dataset, trajectory=None, behavior='landing', zslice=[-.15,0], figu
     t = 1
     n = 0
     if trajectory is None:
+        trajectory = []
         for k,v in dataset.trajecs.items():
             if dataset.trajecs[k].behavior in behavior:    
-            
-                n += 1       
-                
-                bin_assignment_x = np.searchsorted(bins_x, dataset.trajecs[k].positions[:,0])-1
-                bin_assignment_y = np.searchsorted(bins_y, dataset.trajecs[k].positions[:,1])-1
-                bin_assignment_z = np.searchsorted(bins_z, dataset.trajecs[k].positions[:,2])-1
-                radial_pos = (dataset.trajecs[k].positions[:,0]**2 + dataset.trajecs[k].positions[:,1]**2)**(0.5)
-                bin_assignment_r = np.searchsorted(bins_r, radial_pos)-1
-                
-                residency_of_trajectory = np.zeros_like(residency)
-                rz_residency_of_trajectory = np.zeros_like(rz_residency)
-                for i in range(dataset.trajecs[k].length):
-                    x = bin_assignment_x[i]
-                    y = bin_assignment_y[i]
-                    z = bin_assignment_z[i]
-                    r = bin_assignment_r[i]
-                    residency_of_trajectory[x,y,z] += 1
-                    rz_residency_of_trajectory[r,z] += 1
-         
-                # print just one trajectory for debugging
-                if t == 0:
-                    t = 1
-                    print bins_z
-                    print bin_assignment_z
-                    print dataset.trajecs[k].positions[:,2]
-                    print rz_residency_of_trajectory.sum(axis=0)
-                    
-                # plot residency, not dwell time
-                if normalize: 
-                    residency_of_trajectory = floris.binarize(residency_of_trajectory)
-                    rz_residency_of_trajectory = floris.binarize(rz_residency_of_trajectory)
-                residency += residency_of_trajectory
-                rz_residency += rz_residency_of_trajectory
-                
+                trajectory.append(k)
     
+    for k in trajectory:
+    
+        n += 1       
+        
+        bin_assignment_x = np.searchsorted(bins_x, dataset.trajecs[k].positions[:,0])-1
+        bin_assignment_y = np.searchsorted(bins_y, dataset.trajecs[k].positions[:,1])-1
+        bin_assignment_z = np.searchsorted(bins_z, dataset.trajecs[k].positions[:,2])-1
+        radial_pos = (dataset.trajecs[k].positions[:,0]**2 + dataset.trajecs[k].positions[:,1]**2)**(0.5)
+        bin_assignment_r = np.searchsorted(bins_r, radial_pos)-1
+        
+        residency_of_trajectory = np.zeros_like(residency)
+        rz_residency_of_trajectory = np.zeros_like(rz_residency)
+        for i in range(dataset.trajecs[k].length):
+            x = bin_assignment_x[i]
+            y = bin_assignment_y[i]
+            z = bin_assignment_z[i]
+            r = bin_assignment_r[i]
+            residency_of_trajectory[x,y,z] += 1
+            rz_residency_of_trajectory[r,z] += 1
+ 
+        # print just one trajectory for debugging
+        if t == 0:
+            t = 1
+            print bins_z
+            print bin_assignment_z
+            print dataset.trajecs[k].positions[:,2]
+            print rz_residency_of_trajectory.sum(axis=0)
+            
+        # plot residency, not dwell time
+        if normalize: 
+            residency_of_trajectory = floris.binarize(residency_of_trajectory)
+            rz_residency_of_trajectory = floris.binarize(rz_residency_of_trajectory)
+        residency += residency_of_trajectory
+        rz_residency += rz_residency_of_trajectory
+        
+
     
     residency = residency[0:len(bins_x)-1, 0:len(bins_y)-1, 0:len(bins_z)-1]
     rz_residency = rz_residency[0:len(bins_r)-1, 0:len(bins_z)-1]
@@ -1401,33 +1454,35 @@ def heatmap (dataset, trajectory=None, behavior='landing', zslice=[-.15,0], figu
         for i in range(zslicebins[0],zslicebins[1]):
             xy_residency += residency[:,:,i] 
     
-        heatmap = colorgrid.Colorgrid(xy_residency.T, xlim=xyrange, ylim=xyrange)
+        heatmap = colorgrid.Colorgrid(xy_residency.T, xlim=xyrange, ylim=xyrange, color_label=color_label, figure=figure)
         
         el = Ellipse( (0,0), radius*2, radius*2, facecolor='white', edgecolor='none', alpha=0.8)
         heatmap.ax0.add_artist(el)
-        heatmap.ax0.xlabel('x position, m')
-        heatmap.ax0.ylabel('y position, m')
+        heatmap.ax0.set_xlabel('x position, m')
+        heatmap.ax0.set_ylabel('y position, m')
         
         
     # if RZ:
     if plane == 'rz':
 
-        heatmap = colorgrid.Colorgrid(rz_residency.T, xlim=rrange, ylim=zrange)
+        heatmap = colorgrid.Colorgrid(rz_residency.T, xlim=rrange, ylim=zrange, color_label=color_label, figure=figure)
         
         rec = Rectangle( (0,0), radius, -1*dataset.stimulus.height, facecolor='white', edgecolor='none', alpha=0.8)
         heatmap.ax0.add_artist(rec)
 
-        heatmap.ax0.xlabel('r position, m')
-        heatmap.ax0.ylabel('z position, m')
+        heatmap.ax0.set_xlabel('r position, m')
+        heatmap.ax0.set_ylabel('z position, m')
+        
+        heatmap.ax0.set_xticks( [0, 0.05, 0.1, 0.15] )
         
     s = ', behavior: ' + behavior[0]
         
     if normalize:
         s = 'flux probablity' + s
-        heatmap.ax0.title(s)
+        heatmap.ax0.set_title(s)
     else:
         s = 'dwell time probability' + s
-        heatmap.ax0.title(s)
+        heatmap.ax0.set_title(s)
     show()
 
     print 'n: ', n
@@ -1445,9 +1500,9 @@ def state_heatmap (dataset, trajectory=None, behavior='landing', zslice=[-.15,0]
         
     radius = dataset.stimulus.radius
     
-    xyrange = [-.1, .1]
+    xyrange = [-.15, .15]
     zrange = [-.15, .15]
-    rrange = [0, 0.3]
+    rrange = [0, 0.15]
     bins = np.linspace(xyrange[0], xyrange[1], 50)
     bins_x = bins
     bins_y = bins
@@ -1524,8 +1579,8 @@ def state_heatmap (dataset, trajectory=None, behavior='landing', zslice=[-.15,0]
         
         el = Ellipse( (0,0), radius*2, radius*2, facecolor='white', edgecolor='none', alpha=0.8)
         heatmap.ax0.add_artist(el)
-        heatmap.ax0.xlabel('x position, m')
-        heatmap.ax0.ylabel('y position, m')
+        heatmap.ax0.set_xlabel('x position, m')
+        heatmap.ax0.set_ylabel('y position, m')
         
         pyplot.xlabel('x position, m')
         pyplot.ylabel('y position, m')
@@ -1538,8 +1593,8 @@ def state_heatmap (dataset, trajectory=None, behavior='landing', zslice=[-.15,0]
         rec = Rectangle( (0,0), radius, -1*dataset.stimulus.height, facecolor='white', edgecolor='none', alpha=0.8)
         heatmap.ax0.add_artist(rec)
 
-        heatmap.ax0.xlabel('r position, m')
-        heatmap.ax0.ylabel('z position, m')
+        heatmap.ax0.set_xlabel('r position, m')
+        heatmap.ax0.set_ylabel('z position, m')
         
     
     show()
@@ -1578,112 +1633,166 @@ def avg_landing_dist(dataset):
     
 def pdf_heatmaps(dataset):
     
+    plt.close('all')
+    
     pp =  pdf.PdfPages('heatmaps.pdf')
 
     # As many times as you like, create a figure fig, then either:
     f = 0
-    fig = plt.figure(f)
-    heatmap(dataset, behavior='flyby', plane='xy')
-    pp.savefig(fig)
-    plt.close(fig)
+    heatmap(dataset, behavior='flyby', plane='xy', figure = f)
+    pp.savefig(f)
+    plt.close(f)
+    print 'flyby xy'
     
     f += 1
-    fig = plt.figure(f)
-    heatmap(dataset, behavior='flyby', plane='rz')
-    pp.savefig(fig)     
-    plt.close(fig)
+    heatmap(dataset, behavior='flyby', plane='rz', figure = f)
+    pp.savefig(f)     
+    plt.close(f)
+    print 'flyby rz'
     
     f += 1
-    fig = plt.figure(f)
-    heatmap(dataset, behavior='landing', plane='xy')
-    pp.savefig(fig)     
-    plt.close(fig)
+    heatmap(dataset, behavior='landing', plane='xy', figure = f)
+    pp.savefig(f)     
+    plt.close(f)
+    print 'landing xy'
     
     f += 1
-    fig = plt.figure(f)
-    heatmap(dataset, behavior='landing', plane='rz')
-    pp.savefig(fig)     
-    plt.close(fig)
-
+    heatmap(dataset, behavior='landing', plane='rz', figure = f)
+    pp.savefig(f)     
+    plt.close(f)
+    print 'landing rz'
+    
     # Once you are done, remember to close the object:
     pp.close()
+    print 'closed'
     
 def pdf_saccademaps(dataset):
     pp =  pdf.PdfPages('saccademaps.pdf')
     
     f = 0
-    fig = plt.figure(f)
-    saccade_heatmap(dataset, behavior='flyby',plane='xy',zslice=(-.15,.15))
-    pp.savefig(fig)
-    plt.close(fig)
+    saccade_heatmap(dataset, behavior='flyby',plane='xy',zslice=(-.15,.15), figure=f)
+    pp.savefig(f)
+    plt.close(f)
     
     f += 1
     fig = plt.figure(f)
-    saccade_heatmap(dataset, behavior='landing',plane='xy',zslice=(-.15,.15))
-    pp.savefig(fig)
-    plt.close(fig)
+    saccade_heatmap(dataset, behavior='landing',plane='xy',zslice=(-.15,.15), figure=f)
+    pp.savefig(f)
+    plt.close(f)
     
     f += 1
     fig = plt.figure(f)
-    heatmap(dataset, behavior='flyby', plane='xy', zslice=(-.15,.15))
-    pp.savefig(fig)     
-    plt.close(fig)
+    saccade_heatmap(dataset, behavior='flyby', plane='rz', zslice=(-.15,.15), figure=f)
+    pp.savefig(f)     
+    plt.close(f)
     
     f += 1
     fig = plt.figure(f)
-    heatmap(dataset, behavior='landing', plane='xy', zslice=(-.15,.15))
-    pp.savefig(fig)     
-    plt.close(fig)
-    
+    saccade_heatmap(dataset, behavior='landing', plane='rz', zslice=(-.15,.15), figure=f)
+    pp.savefig(f)     
+    plt.close(f)
+
+    # Once you are done, remember to close the object:
     pp.close()
+    print 'closed'
     
+def pdf_landings(dataset):
+    plt.close('all')
+    pp =  pdf.PdfPages('landings.pdf')
     
-def calc_saccades(dataset, trajec, radial_filter=None):
+    classify_landings(dataset)
+    
+    f = 0
+    trajec_list = generate_trajectory_list(dataset, 'landingtype', 'straight')        
+    xy_trajectories(dataset, trajectory=trajec_list, show_saccades=True, saccade_threshold=0.7, figure=f)
+    pp.savefig(f)
+    plt.close(f)
+    
+    n = 0
+    for i in range(7):
+        print n
+        f += 1
+        trajec_list = generate_trajectory_list(dataset, 'landingtype', 'tortuous')        
+        xy_trajectories(dataset, trajectory=trajec_list[n:n+10], show_saccades=True, saccade_threshold=0.7, figure=f)
+        pp.savefig(f)
+        plt.close(f)
+        n += 10
+
+    pp.close()
+        
+    
+def calc_saccades(dataset, trajec, threshold=0.3):
     # find u-turns where the fly turns sharply away from the post
     # look for places in trajectory where polar radial velocity changes from negative to positive
     trajectory = dataset.trajecs[trajec]
-    window = 5 
+    window = 4
     magnitude = 0.1
     saccades = []
-    for i in range(trajectory.length-window):
+    dataset.trajecs[trajec].saccades = np.zeros_like(dataset.trajecs[trajec].speed)
+    dataset.trajecs[trajec].saccade_midpoints = np.zeros_like(dataset.trajecs[trajec].speed)
+    for i in range(trajectory.length-window): # need the -20 to prevent saccades appearing at the end of the trajectory (for landings in particular)
         if i < window:
             continue
-        sac = False
-        # check for local minimal velocity:
-        s1 = trajectory.speed[i-1]
-        s2 = trajectory.speed[i]
-        s3 = trajectory.speed[i+1]
-        
-        if s2 <= s1 and s2 <= s3:
-            
-            # check for an actual turn!
-            v1 = trajectory.velocities[i-window,:]
-            v1 /= np.linalg.norm(v1)
-            v2 = trajectory.velocities[i+window,:]
-            v2 /= np.linalg.norm(v2)
-            proj = np.dot(v1,v2) # if proj=1 there was no turn
-            if proj < 0.3:
+        if 0:
+            try:
+                if i+window > trajectory.frame_of_landing:
+                    continue
+            except:
+                pass
                 
-                if radial_filter is not None:
-                    if radial_filter == 'away':
-                        old_vel = trajectory.polar_vel[i-1,0]
-                        new_vel = trajectory.polar_vel[i+1,0]
-                        if old_vel < 0:
-                            if new_vel > 0:
-                                sac = True
-                elif radial_filter is None:
-                    sac = True
-                                
-                if sac is True:                
-                    x = trajectory.positions[i,0]
-                    y = trajectory.positions[i,1]
-                    z = trajectory.positions[i,2]
+        # check to see if near landing spot
+        if trajectory.behavior == 'landing':
+            landing_pos = trajectory.positions[trajectory.frame_of_landing, :]
+            current_pos = trajectory.positions[i, :]
+       #     dist = trajectory.dist_to_stim[i]
+            dist = np.linalg.norm( landing_pos - current_pos )
+            if dist < 0.01:
+                continue
+            
+        sac = False
+            
+        # check for an actual turn!
+        v1 = trajectory.velocities[i-window,:]
+        v1 /= np.linalg.norm(v1)
+        v2 = trajectory.velocities[i+window,:]
+        v2 /= np.linalg.norm(v2)
+        proj = np.dot(v1,v2) # if proj=1 there was no turn
+        if proj < threshold:
+            sac = True
+            dataset.trajecs[trajec].saccades[i] = 1
+            
+            
+    # find the middle of saccade sections:
+    if 1:
+        in_saccade = 0
+        for i in range(trajectory.length):
+        
+            if trajectory.saccades[i] == 1:
+                if in_saccade == 0:
+                    in_saccade = 1
+                    saccade_start = i
+                elif in_saccade == 1:
+                    pass
+                    
+            if trajectory.saccades[i] == 0:
+                if in_saccade == 1:
+                    in_saccade = 0
+                    length_of_saccade = i-saccade_start
+                    if length_of_saccade < 3:
+                        continue
+                    saccade_midpoint = int(saccade_start+length_of_saccade/2)
+                    trajectory.saccade_midpoints[saccade_midpoint] = 1
+                    
+                    x = trajectory.positions[saccade_midpoint,0]
+                    y = trajectory.positions[saccade_midpoint,1]
+                    z = trajectory.positions[saccade_midpoint,2]
                     saccades.append( (x,y,z) )
+                    
                 
     return saccades
     
     
-def saccade_heatmap (dataset, behavior='landing', zslice=[-.15,0], plane='xy'):
+def saccade_heatmap (dataset, behavior='landing', zslice=[-.15,.15], plane='xy', figure=None):
     
     if behavior == 'all':
         behavior = ['landing', 'flyby', 'takeoff', 'unclassified']
@@ -1709,7 +1818,7 @@ def saccade_heatmap (dataset, behavior='landing', zslice=[-.15,0], plane='xy'):
         
             n += 1       
             
-            saccades = calc_saccades(dataset, k, radial_filter=None)
+            saccades = calc_saccades(dataset, k, threshold=0.7)
             for saccade in saccades:        
                                     
                 x = np.searchsorted(bins_x, saccade[0])-1
@@ -1728,27 +1837,27 @@ def saccade_heatmap (dataset, behavior='landing', zslice=[-.15,0], plane='xy'):
         for i in range(zslicebins[0],zslicebins[1]):
             saccade_map_xy += saccade_map[:,:,i] 
 
-        heatmap = colorgrid.Colorgrid(saccade_map_xy.T[1:-1,0:saccade_map_xy.shape[1]-2], xlim=xyrange, ylim=xyrange)
+        heatmap = colorgrid.Colorgrid(saccade_map_xy.T[1:-1,0:saccade_map_xy.shape[1]-2], xlim=xyrange, ylim=xyrange, figure=figure)
 
         el = Ellipse( (0,0), radius*2, radius*2, facecolor='white', edgecolor='none', alpha=0.8)
         heatmap.ax0.add_artist(el)
 
-        heatmap.ax0.xlabel('x position, m')
-        heatmap.ax0.ylabel('y position, m')
+        heatmap.ax0.set_xlabel('x position, m')
+        heatmap.ax0.set_ylabel('y position, m')
         
     # if RZ:
     if plane == 'rz':
 
-        heatmap = colorgrid.Colorgrid(saccade_map_rz.T[1:-1,0:saccade_map_xy.shape[1]-2], xlim=rrange, ylim=zrange)
+        heatmap = colorgrid.Colorgrid(saccade_map_rz.T[1:-1,0:saccade_map_rz.shape[1]-2], xlim=rrange, ylim=zrange, figure=figure)
         
         rec = Rectangle( (0,0), radius, -1*dataset.stimulus.height, facecolor='white', edgecolor='none', alpha=0.8)
         heatmap.ax0.add_artist(rec)
 
-        heatmap.ax0.xlabel('r position, m')
-        heatmap.ax0.ylabel('z position, m')
+        heatmap.ax0.set_xlabel('r position, m')
+        heatmap.ax0.set_ylabel('z position, m')
         
     title = 'saccade map, behavior: ' + behavior[0]
-    heatmap.ax0.title(title)
+    heatmap.ax0.set_title(title)
         
     
     show()
@@ -1766,11 +1875,125 @@ def saccade_heatmap (dataset, behavior='landing', zslice=[-.15,0], plane='xy'):
     
     
     
+def classify_landings(dataset, method='tortuosity'):
+
+    if method is 'tortuosity':
+        
+        tortuosity_range = 40
+        threshold = 0.5 # percentage... 100% means all ones for tortuosity range, means perfectly straight path
+        for k,v in dataset.trajecs.items():
+            if dataset.trajecs[k].behavior is 'landing': 
+                
+                # get total tortuosity of the last X frames before landing
+                #try:
+                #    tmp = dataset.trajecs[k].tortuosity[0]
+                #except:
+                #calc_tortuosity(dataset, k)
+                saccades = calc_saccades(dataset, k, threshold=0.7)
+                
+                #total_tortuosity = np.sum( np.abs(dataset.trajecs[k].tortuosity[dataset.trajecs[k].length-tortuosity_range : dataset.trajecs[k].length-5]) )
+                
+                # average speed for the range:
+                avg_speed = np.mean(dataset.trajecs[k].speed[dataset.trajecs[k].length-60 : dataset.trajecs[k].length-20])
+                
+                if avg_speed > 0.27:
+                    dataset.trajecs[k].landingtype = 'straight'
+                #if total_tortuosity < threshold*tortuosity_range:
+                else:
+                    dataset.trajecs[k].landingtype = 'tortuous'
+                    
+                for saccade in saccades:
+                    if np.sqrt( saccade[0]**2 + saccade[1]**2 ) < 0.1:
+                        dataset.trajecs[k].landingtype = 'tortuous'
+                    
+                #print dataset.trajecs[k].landingtype, avg_speed #, total_tortuosity      
+                
+                
+    if method is 'angularvel':
+
+        angularvel_range = 40
+        threshold = 10 # percentage... 100% means all ones for tortuosity range, means perfectly straight path
+        for k,v in dataset.trajecs.items():
+            if dataset.trajecs[k].behavior is 'landing': 
+                
+                total_angularvel = np.sum( np.abs(dataset.trajecs[k].angle_to_post[dataset.trajecs[k].length-angularvel_range:-1]) )
+                
+                if total_angularvel < threshold:
+                    dataset.trajecs[k].landingtype = 'straight'
+                if total_angularvel > threshold:
+                    dataset.trajecs[k].landingtype = 'tortuous'
+                    
+                print dataset.trajecs[k].landingtype, total_angularvel   
+                
+    if method is 'saccades':
     
+        for k,v in dataset.trajecs.items():
+            if dataset.trajecs[k].behavior is 'landing': 
+                
+                saccades = calc_saccades(dataset, k, threshold=0.7)
+                nsaccades_near_post = 0
+                for sac in saccades:
+                    dist_to_post = np.sqrt(sac[0]**2 + sac[1]**2)
+                    if dist_to_post < 0.07 and dist_to_post > 0.01:
+                        nsaccades_near_post += 1
+                        
+                if nsaccades_near_post > 0:
+                    dataset.trajecs[k].landingtype = 'tortuous'
+                else:
+                    dataset.trajecs[k].landingtype = 'straight'
+                    
+                print dataset.trajecs[k].landingtype, nsaccades_near_post
+
+def calc_tortuosity(dataset, trajectory):
+
+    trajectory = dataset.trajecs[trajectory]
+    trajectory.tortuosity = np.zeros_like(trajectory.speed)
+    window = 4
+
+    for i in range(trajectory.length-window):
+        if i < window:
+            continue
+        v1 = trajectory.velocities[i-window,:]
+        v1 /= np.linalg.norm(v1)
+        v2 = trajectory.velocities[i+window,:]
+        v2 /= np.linalg.norm(v2)
+        proj = np.dot(v1,v2) # if proj=1 there was no turn
+        
+        # if tortuosity is large, the path is relatively straight..
+        trajectory.tortuosity[i] = proj
+        
+        
+def generate_trajectory_list(dataset, feature, value):
     
+    trajectory_list = []
     
+    for k,v in dataset.trajecs.items():
+        if dataset.trajecs[k].__dict__[feature] == value:
+            trajectory_list.append(k)
+            
+    return trajectory_list
     
+
+def pdf_landings_rz_nonaccidental(dataset, ):
     
+    classify_landings(dataset)
     
+    pp =  pdf.PdfPages('non_accidental_landings.pdf')
+    
+    f = 0
+    trajec_list = generate_trajectory_list(dataset, 'landingtype', 'tortuous')  
+    print len(trajec_list)      
+    heatmap(dataset, trajectory=trajec_list, figure=f, plane='rz')
+    pp.savefig(f)
+    plt.close(f)
+    
+    f += 1
+    rz_trajectories(dataset, trajectory=trajec_list, figure=f)
+    pp.savefig(f)
+    plt.close(f)
+    
+    # Once you are done, remember to close the object:
+    pp.close()
+    print 'closed'
     
 
