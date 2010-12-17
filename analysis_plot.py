@@ -25,7 +25,13 @@ def load(filename, prep=True):
         dataset.prep_data()
         
     return dataset
-    
+
+def initialize_dataset(filename):
+    try:
+        print type(dataset)
+    except:
+        dataset = load(filename, prep=False)
+    return dataset
     
 def save(dataset, filename):
     print 'saving data to file: ', filename
@@ -36,7 +42,7 @@ def save(dataset, filename):
     
     
     
-def load_raw(filename, dataset=None, center = np.array([0,0,0]), radius = .01913/2., fps = None, experiment = None, gender = None, post_height = 0.3, kalman_smoothing = True, objs = None):
+def load_raw(filename, dataset=None, center = np.array([0,0,0]), radius = .01913/2., fps = None, experiment = None, gender = None, post_height = 0.3, kalman_smoothing = True, objs = None, post_type=None):
 
 
     ## experiment specific files ##
@@ -1638,7 +1644,7 @@ def pdf_heatmaps(dataset):
     pp =  pdf.PdfPages('heatmaps.pdf')
 
     # As many times as you like, create a figure fig, then either:
-    f = 0
+    f = 1
     heatmap(dataset, behavior='flyby', plane='xy', figure = f)
     pp.savefig(f)
     plt.close(f)

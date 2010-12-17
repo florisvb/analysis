@@ -52,7 +52,7 @@ class Dataset:
         self.stimulus = stimulus
 
         
-    def load_data (self, filename, calibration_file = None, objs = None, obj_filelist = None, kalman_smoothing = True, fps = None, dynamic_model = None, gender = None):
+    def load_data (self, filename, calibration_file = None, objs = None, obj_filelist = None, kalman_smoothing = True, fps = None, dynamic_model = None, gender = None, post_type=None):
     
         self.datasets.append(len(self.datasets)+1)
         self.filename.append(filename)
@@ -112,7 +112,7 @@ class Dataset:
           
             # couple object ID dictionary with trajectory objects
             traj_id = (str(self.datasets[-1])+'_'+str(obj_id))
-            self.trajecs.setdefault(traj_id, Trajectory(kalman_rows, extra, stimulus = self.stimulus, fps = fps) )
+            self.trajecs.setdefault(traj_id, Trajectory(kalman_rows, extra, stimulus = self.stimulus, fps = fps, post_type=None) )
             #print 'loaded trajectory for object id: ', obj_id
         
             #self.trajecs.setdefault(obj, 
@@ -345,7 +345,7 @@ class Post:
 
 class Trajectory:
 
-    def __init__(self, kalman_rows, extra, stimulus = None, fps = None):
+    def __init__(self, kalman_rows, extra, stimulus = None, fps = None, post_type=None):
         """
         kalman rows =   [0] = obj_id
                         [1] = frame
@@ -370,6 +370,7 @@ class Trajectory:
                         
                         
         """
+        self.post_type = post_type
         self.obj_id = kalman_rows[0][0]
         self.kalman_rows = kalman_rows
         

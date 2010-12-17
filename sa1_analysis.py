@@ -23,7 +23,7 @@ def get_movie_dict(movie_info_filename):
         if len(entry) == 2:
             movie_dict.setdefault(entry[0], entry[1])
         
-        if line_number > 3:
+        if line_number > 18:
             break
             
     movie_date = map(int, movie_dict['Date'].split('/'))
@@ -38,7 +38,28 @@ def get_movie_dict(movie_info_filename):
     infile.close()
     return movie_dict 
     
-def load_movie_info(movie_path, movie_list):
+def get_timestamp(movie_dict, frame):
+    
+    trigger_stamp = movie_dict['EpochTime']
+    start_frame = int(movie_dict['Start Frame'])
+    trigger_frame = int(movie_dict['Correct Trigger Frame'])
+    fps = float(movie_dict['Record Rate(fps)'])
+    
+    frame = (start_frame + frame) - trigger_frame
+    dt = float(frame) * fps
+    timestamp = trigger_stamp + dt
+    
+    return timestamp
+    
+def get_timestamps(movie_dict):
+    nframes = int(movie_dict['Total Frame'])
+    timestamps = []
+    for frame in range(nframes):
+        timestamp = get_timestamp(movie_dict, frame)
+        timestamps.append(timestamp)
+    movie_dict.setdefault('Timestamps', timestamps)        
+    
+def load_movie_info(movie_list):
     movie_list_fd = open(movie_list, 'r')
     movies = {}
     for line in movie_list_fd.readlines():
@@ -46,7 +67,6 @@ def load_movie_info(movie_path, movie_list):
         
         # clean entry
         for i, enum in enumerate(entry):
-            
             entry[i] = entry[i].rstrip()
             entry[i] = entry[i].lstrip()
             try:
@@ -56,22 +76,54 @@ def load_movie_info(movie_path, movie_list):
             entry[i] = entry[i].rstrip()
             entry[i] = entry[i].lstrip()
         #
+        #try:
+        movie_path = entry[0]
+        if movie_path[-1] != '/':
+            movie_path = movie_path + '/'
+        print entry
+        movie_id = entry[1]
+        movie_info_filename = movie_path + movie_id + '.cih'
+        print movie_info_filename
+        behavior = entry[2]
+        awesome = int(entry[3])
+        post_type = entry[4]
+        extras = entry[5]
+        extras = extras.split('%')
         try:
-            movie_id = entry[0]
-            movie_info_filename = movie_path + movie_id + '.cih'
-            behavior = entry[1]
-            awesome = int(entry[2])
-            post_type = entry[3]
             movie_dict = get_movie_dict(movie_info_filename)
             movie_dict.setdefault('Behavior', behavior)
             movie_dict.setdefault('Awesome', awesome)
             movie_dict.setdefault('PostType', post_type)
+            movie_dict.setdefault('Extras', extras)
+            movie_dict.setdefault('Path', movie_path)
             
             movies.setdefault(movie_id, movie_dict)
         except:
+            print 'pass'
             pass
     movie_list_fd.close()
     return movies
+    
+def get_flydra_trajectory(movie, dataset):
+    
+    obj_id = movie['Obj_ID']
+    epochtime = movie['EpochTime']
+    
+    for k, trajectory in dataset.trajecs.items():
+        t = k.lstrip('1234567890')
+        t = t.lstrip('_')
+        o = int(t)
+        if obj_id == o:
+            # check timestamp:
+            time_err = np.abs(trajectory.epoch_time[0] - epochtime)
+            if time_err < 10:
+                movie.setdefault('Dataset_ID', k)
+                movie.setdefault('Trajectory', trajectory)
+                return trajectory
+        else:
+            continue    
+        
+        
     
 def get_movie_obj_id(movie, obj_id_list):
     movie_time = movie['EpochTime']
@@ -86,16 +138,30 @@ def get_movie_obj_id(movie, obj_id_list):
     else:
         obj_id = None
     print obj_id
+    movie.setdefault('Obj_ID', obj_id)
     return obj_id
     
     
-def get_awesome_movies(movies, behavior='landing'):
+def get_awesome_movies(movies, behavior='landing', extras=None, awesome=1):
     awesome_list = []
-    for k, movie in movies.items():
-        if movie['Behavior'] == behavior:
-            if movie['Awesome'] == 1:
-                 awesome_list.append((k, movie['Obj_ID'], movie['Date']))
-                 
+    
+    if type(behavior) is not list:
+        behavior = [behavior]
+    if type(awesome) is not list:
+        awesome = [awesome]
+        
+    if extras is None:
+        for k, movie in movies.items():
+            if movie['Behavior'] in behavior:
+                if movie['Awesome'] in awesome:
+                     awesome_list.append((k, movie['Obj_ID'], movie['Date']))
+    
+    else:
+        for k, movie in movies.items():
+            if extras in movie['Extras']:
+                if movie['Awesome'] in awesome:
+                     awesome_list.append((k, movie['Obj_ID'], movie['Date']))
+    
     return awesome_list
 #########################################################################################
 
@@ -104,9 +170,17 @@ if __name__ == '__main__':
 
     sa1_obj_id_files = [    '/home/floris/data/windtunnel/SA1/checkerboard/SA1_20101023', 
                             '/home/floris/data/windtunnel/SA1/checkerboard/SA1_20101024',
-                            '/home/floris/data/windtunnel/SA1/black/SA1_20101025']
-    movie_path = '/media/SA1_videos/sa1_videos/'
-    movie_list = '/media/SA1_videos/sa1_classification.txt'
+                            '/home/floris/data/windtunnel/SA1/black/SA1_20101025',
+                            '/home/floris/data/windtunnel/SA1/black/SA1_20101026',
+                            '/home/floris/data/windtunnel/SA1/black/SA1_20101026_a',
+                            '/home/floris/data/windtunnel/SA1/black/SA1_20101027',
+                            '/home/floris/data/windtunnel/SA1/black/SA1_20101028',
+                            '/home/floris/data/windtunnel/SA1/checker_angle/SA1_20101029',
+                            '/home/floris/data/windtunnel/SA1/checker_angle/SA1_20101031',
+                            '/home/floris/data/windtunnel/SA1/checker_angle/SA1_20101101',                      
+                            ]
+                            
+    movie_list = '/home/floris/data/windtunnel/SA1/sa1_classification.txt'
 
 
     obj_id_list = None
@@ -115,11 +189,15 @@ if __name__ == '__main__':
         infile = open(filename, 'r')
         unpickler = pickle.Unpickler(infile)
         # this bullshit needed to deal with the pickle file, which has multiple dumps.. only the last load() call has the whole file
-        while 1:
-            try:
-                new_obj_id_list = unpickler.load()
-            except:
-                break
+        new_obj_id_list = unpickler.load()
+        if 1:
+            while 1:
+                try:
+                    new_obj_id_list = unpickler.load()
+                    print 'loading'
+                except:
+                    print 'broken'
+                    break
         infile.close()
         
         if obj_id_list == None:
@@ -129,12 +207,12 @@ if __name__ == '__main__':
             
     ## load SA1 movie info ##
     if 1:
-        movies = load_movie_info(movie_path, movie_list)
+        movies = load_movie_info(movie_list)
 
         for k, movie in movies.items():
             obj_id = get_movie_obj_id(movie, obj_id_list)
-            movie.setdefault('Obj_ID', obj_id)
-
+            get_timestamps(movie)
+            get_flydra_trajectory(movie, dataset)
             
 
 
