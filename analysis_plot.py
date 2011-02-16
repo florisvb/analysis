@@ -2003,3 +2003,33 @@ def pdf_landings_rz_nonaccidental(dataset, ):
     print 'closed'
     
 
+
+def plot_trajectory(trajectory, lim=(-.15, .15), norm=None, colorcode='s', figure=None):
+
+    if norm is None:
+        if colorcode == 'z':
+            norm = (zslice[0], zslice[1])
+        if colorcode == 's':
+            norm = (0.02, .3)
+        if colorcode == 'r':
+            norm = (-.2, .2)
+            
+            
+    cl = colorline.Colorline(xlim=lim, ylim =lim, norm=norm, colormap = 'jet', figure=figure)
+                    
+    x = trajectory.positions[:,0]
+    y = trajectory.positions[:,1]
+    s = trajectory.speed[:]
+    z = trajectory.positions[:,2]
+                
+    cl.colorline(x, y, s,linewidth=1)
+                    
+                
+    title = 'x-y trajectories for select trajectories'
+    cl.ax0.set_title(title)
+    cl.ax0.set_xlabel('x dimension, meters')
+    cl.ax0.set_ylabel('y dimension, meters')
+                
+    pyplot.show()
+
+    return cl

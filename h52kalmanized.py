@@ -7,6 +7,16 @@ sys.path.append("/home/floris/src/analysis")
 import flydra_floris_analysis as ffa
 
 
+def find_trajectory_from_timestamp(dataset, timestamp):
+    
+    trajectories = []
+    for k, trajec in dataset.trajecs.items():
+        time_errors = np.abs(trajec.epoch_time - timestamp)
+    
+        if np.min(time_errors) < 1:
+            print k
+            trajectories.append(k)
+
 def match_obj_to_kalmanized_obj(h5source, original_obj_id, kalmanizedsource=None):
 
     original_trajectory = ffa.load_trajectory(source=h5source, obj=original_obj_id)

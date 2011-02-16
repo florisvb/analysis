@@ -2,7 +2,7 @@ import numpy as np
 import cPickle as pickle
 import time
 import datetime
-
+import scipy.optimize
 
 #########################################################################################
 def get_movie_dict(movie_info_filename):
@@ -78,6 +78,9 @@ def load_movie_info(movie_list):
         #
         #try:
         movie_path = entry[0]
+        print
+        print movie_path
+        print '***************'
         if movie_path[-1] != '/':
             movie_path = movie_path + '/'
         print entry
@@ -104,24 +107,106 @@ def load_movie_info(movie_list):
     movie_list_fd.close()
     return movies
     
-def get_flydra_trajectory(movie, dataset):
+def get_flydra_frame(npmovie, delay=0, find_delay=False):
+    # algorithm works, but does not work on the data.. there is some delay in the two timestamps
+    sa1_epochtime = npmovie.epochtime+delay
     
-    obj_id = movie['Obj_ID']
-    epochtime = movie['EpochTime']
+    flydra_frames = np.zeros(len(npmovie.uframes))
+    errors = np.zeros_like(flydra_frames)
     
-    for k, trajectory in dataset.trajecs.items():
-        t = k.lstrip('1234567890')
-        t = t.lstrip('_')
-        o = int(t)
-        if obj_id == o:
-            # check timestamp:
-            time_err = np.abs(trajectory.epoch_time[0] - epochtime)
-            if time_err < 10:
-                movie.setdefault('Dataset_ID', k)
-                movie.setdefault('Trajectory', trajectory)
-                return trajectory
-        else:
-            continue    
+    if find_delay is True:
+        start = 0
+        stop = -1
+    else:
+        start = 0
+        stop = -1       
+    
+    for f, uframe in enumerate(npmovie.uframes[start:stop]):
+        if uframe is not None:
+            sa1_time = f*1.0/npmovie.fps + sa1_epochtime
+            
+            err = np.zeros_like(npmovie.trajec.epoch_time)
+            for i, time in enumerate(npmovie.trajec.epoch_time):
+                err[i] = np.abs(time-sa1_time)
+    
+            best_match = np.argmin(err) 
+            #print sa1_time, npmovie.trajec.epoch_time[best_match]
+            flydra_frames[f] = best_match
+            errors[f] = err[best_match]
+            if find_delay is False:
+                try:
+                    delay = npmovie.flydradelay
+                except:
+                    pass
+                uframe.flydraframe = best_match
+                try:
+                    uframe.timestamp_adjusted = uframe.timestamp+delay
+                except:
+                    pass
+                try:
+                    npmovie.timestamps_adjusted = npmovie.timestamps+delay+sa1_epochtime
+                except:
+                    pass
+    if find_delay is True:
+        e = np.sum(errors)
+        print e
+        return e
+    else:
+        return flydra_frames, errors
+        
+def fmin_wrapper_get_flydra_frame(delay, npmovie):
+    e = get_flydra_frame(npmovie, delay=delay, find_delay=True)
+    return e
+    
+def find_sa1_timestamp_delay(npmovie, guess=30):
+    try:
+        delay = guess
+        results = scipy.optimize.fmin(fmin_wrapper_get_flydra_frame, delay, args=(npmovie,), full_output=True)
+        delay = results[0][0]
+        npmovie.flydradelay = delay 
+        
+        get_flydra_frame(npmovie, delay=delay)
+        return delay
+    except:
+        return None
+        
+def get_flydra_trajectory(npmovie, dataset):
+
+    t = time.localtime(npmovie.epochtime)
+    try:
+        obj_id = int(npmovie.objid)
+    except: 
+        npmovie.dataset_id = None
+        npmovie.trajec = None
+        return None, None
+        
+    epochtime = npmovie.epochtime
+    
+    print 'dataset should include: ', time.strftime('%Y%m%d %H%M%S', t)
+    print 'obj id: ', obj_id
+    
+    try:
+        for k, trajectory in dataset.trajecs.items():
+            t = k.lstrip('1234567890')
+            t = t.lstrip('_')
+            o = int(t)
+            if obj_id == o:
+                # check timestamp:
+                time_err = np.abs(trajectory.epoch_time[0] - epochtime)
+                print time_err
+                if time_err < 100:
+                    npmovie.dataset_id = k
+                    npmovie.trajec = trajectory
+                    return trajectory, time_err
+            else:
+                continue    
+    except:
+        npmovie.dataset_id = None
+        npmovie.trajec = None
+        return None, None   
+    npmovie.dataset_id = None 
+    npmovie.trajec = None
+    return None, None
         
         
     
@@ -166,7 +251,7 @@ def get_awesome_movies(movies, behavior='landing', extras=None, awesome=1):
 #########################################################################################
 
 
-if __name__ == '__main__':
+def sa1_analysis():
 
     sa1_obj_id_files = [    '/home/floris/data/windtunnel/SA1/checkerboard/SA1_20101023', 
                             '/home/floris/data/windtunnel/SA1/checkerboard/SA1_20101024',
@@ -177,7 +262,11 @@ if __name__ == '__main__':
                             '/home/floris/data/windtunnel/SA1/black/SA1_20101028',
                             '/home/floris/data/windtunnel/SA1/checker_angle/SA1_20101029',
                             '/home/floris/data/windtunnel/SA1/checker_angle/SA1_20101031',
-                            '/home/floris/data/windtunnel/SA1/checker_angle/SA1_20101101',                      
+                            '/home/floris/data/windtunnel/SA1/checker_angle/SA1_20101101',  
+                            '/home/floris/data/windtunnel/SA1/checker_angle/SA1_20101109',  
+                            '/home/floris/data/windtunnel/SA1/checker_angle/SA1_20101110',    
+                            '/home/floris/data/windtunnel/SA1/black_angle/SA1_20101111', 
+                            '/home/floris/data/windtunnel/SA1/black_angle/SA1_20101113',                   
                             ]
                             
     movie_list = '/home/floris/data/windtunnel/SA1/sa1_classification.txt'
@@ -194,9 +283,7 @@ if __name__ == '__main__':
             while 1:
                 try:
                     new_obj_id_list = unpickler.load()
-                    print 'loading'
                 except:
-                    print 'broken'
                     break
         infile.close()
         
@@ -212,9 +299,9 @@ if __name__ == '__main__':
         for k, movie in movies.items():
             obj_id = get_movie_obj_id(movie, obj_id_list)
             get_timestamps(movie)
-            get_flydra_trajectory(movie, dataset)
+            #get_flydra_trajectory(movie, dataset)
             
 
-
+    return obj_id_list, movies
 
 

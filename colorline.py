@@ -7,17 +7,23 @@ import matplotlib.colorbar
 
 class Colorline ():
 
-    def __init__ (self, figure = None, colormap = 'copper', ylim = (-1,1), xlim = (-1,1), norm = None):
+    def __init__ (self, figure = None, colormap = 'copper', ylim = (-1,1), xlim = (-1,1), norm = None, hide_colorbar=False, ax0=None):
         
         # "figure" should be a matplotlib figure
+        self.hide_colorbar = hide_colorbar
         
         # initialize figure and axes
         if figure is None:
             self.fig = plt.figure()
         else:
             self.fig = plt.figure(figure)
-        self.ax0 = self.fig.add_axes([0.12,0.1,0.70,0.75])
-        self.ax1 = self.fig.add_axes([0.85,0.1,0.05,0.75])
+        if ax0 is None:
+            self.ax0 = self.fig.add_axes([0.1,0.1,0.7,0.7])
+        else:
+            self.ax0 = self.fig.add_axes(ax0)
+        
+        if self.hide_colorbar is False:
+            self.ax1 = self.fig.add_axes([0.85,0.1,0.05,0.7])
 
         
         self.ax0.set_ylim(ylim)
@@ -49,9 +55,9 @@ class Colorline ():
         if self.norm is None:
             self.norm = plt.Normalize(z.min(), z.max())
 
-            
-        if self.cb is None:
-            self.cb = matplotlib.colorbar.ColorbarBase(self.ax1, cmap=cmap, norm=self.norm, orientation='vertical', boundaries=None)
+        if self.hide_colorbar is False:
+            if self.cb is None:
+                self.cb = matplotlib.colorbar.ColorbarBase(self.ax1, cmap=cmap, norm=self.norm, orientation='vertical', boundaries=None)
             
             
         
