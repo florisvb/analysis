@@ -38,26 +38,26 @@ def get_movie_dict(movie_info_filename):
     infile.close()
     return movie_dict 
     
-def get_timestamp(movie_dict, frame):
+def get_timestamp(movie_dict, frame, trigger_stamp):
     
-    trigger_stamp = movie_dict['EpochTime']
+    #trigger_stamp = movie_dict['EpochTime']
     start_frame = int(movie_dict['Start Frame'])
     trigger_frame = int(movie_dict['Correct Trigger Frame'])
     fps = float(movie_dict['Record Rate(fps)'])
     
     frame = (start_frame + frame) - trigger_frame
-    dt = float(frame) * fps
+    dt = float(frame) * 1/float(fps)
     timestamp = trigger_stamp + dt
     
     return timestamp
     
-def get_timestamps(movie_dict):
+def get_timestamps(movie_dict, trigger_stamp):
     nframes = int(movie_dict['Total Frame'])
     timestamps = []
     for frame in range(nframes):
-        timestamp = get_timestamp(movie_dict, frame)
+        timestamp = get_timestamp(movie_dict, frame, trigger_stamp)
         timestamps.append(timestamp)
-    movie_dict.setdefault('Timestamps', timestamps)        
+    movie_dict.setdefault('Timestamps', np.array(timestamps))        
     
 def load_movie_info(movie_list):
     movie_list_fd = open(movie_list, 'r')
@@ -220,11 +220,14 @@ def get_movie_obj_id(movie, obj_id_list):
     #print min(errors)
     if min(errors) < 200:
         obj_id = int(obj_id_list[ np.argmin(errors), 0])
+        trigger_stamp = float(obj_id_list[ np.argmin(errors), 1])
     else:
         obj_id = None
-    print obj_id
+        trigger_stamp = 0
+    print obj_id, trigger_stamp
     movie.setdefault('Obj_ID', obj_id)
-    return obj_id
+    movie.setdefault('Trigger Stamp', trigger_stamp)
+    return obj_id, trigger_stamp
     
     
 def get_awesome_movies(movies, behavior='landing', extras=None, awesome=1):
@@ -252,24 +255,40 @@ def get_awesome_movies(movies, behavior='landing', extras=None, awesome=1):
 
 
 def sa1_analysis():
-
-    sa1_obj_id_files = [    '/home/floris/data/windtunnel/SA1/checkerboard/SA1_20101023', 
-                            '/home/floris/data/windtunnel/SA1/checkerboard/SA1_20101024',
-                            '/home/floris/data/windtunnel/SA1/black/SA1_20101025',
-                            '/home/floris/data/windtunnel/SA1/black/SA1_20101026',
-                            '/home/floris/data/windtunnel/SA1/black/SA1_20101026_a',
-                            '/home/floris/data/windtunnel/SA1/black/SA1_20101027',
-                            '/home/floris/data/windtunnel/SA1/black/SA1_20101028',
-                            '/home/floris/data/windtunnel/SA1/checker_angle/SA1_20101029',
-                            '/home/floris/data/windtunnel/SA1/checker_angle/SA1_20101031',
-                            '/home/floris/data/windtunnel/SA1/checker_angle/SA1_20101101',  
-                            '/home/floris/data/windtunnel/SA1/checker_angle/SA1_20101109',  
-                            '/home/floris/data/windtunnel/SA1/checker_angle/SA1_20101110',    
-                            '/home/floris/data/windtunnel/SA1/black_angle/SA1_20101111', 
-                            '/home/floris/data/windtunnel/SA1/black_angle/SA1_20101113',                   
-                            ]
+    if 0:
+        sa1_obj_id_files = [    '/home/floris/data/windtunnel/SA1/checkerboard/SA1_20101023', 
+                                '/home/floris/data/windtunnel/SA1/checkerboard/SA1_20101024',
+                                '/home/floris/data/windtunnel/SA1/black/SA1_20101025',
+                                '/home/floris/data/windtunnel/SA1/black/SA1_20101026',
+                                '/home/floris/data/windtunnel/SA1/black/SA1_20101026_a',
+                                '/home/floris/data/windtunnel/SA1/black/SA1_20101027',
+                                '/home/floris/data/windtunnel/SA1/black/SA1_20101028',
+                                '/home/floris/data/windtunnel/SA1/checker_angle/SA1_20101029',
+                                '/home/floris/data/windtunnel/SA1/checker_angle/SA1_20101031',
+                                '/home/floris/data/windtunnel/SA1/checker_angle/SA1_20101101',  
+                                '/home/floris/data/windtunnel/SA1/checker_angle/SA1_20101109',  
+                                '/home/floris/data/windtunnel/SA1/checker_angle/SA1_20101110',    
+                                '/home/floris/data/windtunnel/SA1/black_angle/SA1_20101111', 
+                                '/home/floris/data/windtunnel/SA1/black_angle/SA1_20101113',                   
+                                ]
+    if 1:
+        sa1_obj_id_files = [    '/home/floris/Documents/data/sa1_movie_data/SA1_20101023', 
+                                '/home/floris/Documents/data/sa1_movie_data/SA1_20101024',
+                                '/home/floris/Documents/data/sa1_movie_data/SA1_20101025',
+                                '/home/floris/Documents/data/sa1_movie_data/SA1_20101026',
+                                '/home/floris/Documents/data/sa1_movie_data/SA1_20101026_a',
+                                '/home/floris/Documents/data/sa1_movie_data/SA1_20101027',
+                                '/home/floris/Documents/data/sa1_movie_data/SA1_20101028',
+                                '/home/floris/Documents/data/sa1_movie_data/SA1_20101029',
+                                '/home/floris/Documents/data/sa1_movie_data/SA1_20101031',
+                                '/home/floris/Documents/data/sa1_movie_data/SA1_20101101',  
+                                '/home/floris/Documents/data/sa1_movie_data/SA1_20101109',  
+                                '/home/floris/Documents/data/sa1_movie_data/SA1_20101110',    
+                                '/home/floris/Documents/data/sa1_movie_data/SA1_20101111', 
+                                '/home/floris/Documents/data/sa1_movie_data/SA1_20101113',                   
+                                ]
                             
-    movie_list = '/home/floris/data/windtunnel/SA1/sa1_classification.txt'
+    movie_list = '/home/floris/Documents/data/sa1_classification.txt'
 
 
     obj_id_list = None
@@ -297,8 +316,8 @@ def sa1_analysis():
         movies = load_movie_info(movie_list)
 
         for k, movie in movies.items():
-            obj_id = get_movie_obj_id(movie, obj_id_list)
-            get_timestamps(movie)
+            obj_id, trigger_stamp = get_movie_obj_id(movie, obj_id_list)
+            get_timestamps(movie, trigger_stamp)
             #get_flydra_trajectory(movie, dataset)
             
 

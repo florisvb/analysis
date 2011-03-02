@@ -18,7 +18,7 @@ class Colorline ():
         else:
             self.fig = plt.figure(figure)
         if ax0 is None:
-            self.ax0 = self.fig.add_axes([0.1,0.1,0.7,0.7])
+            self.ax0 = self.fig.add_axes([-.15,0.1,0.7,0.7])
         else:
             self.ax0 = self.fig.add_axes(ax0)
         
