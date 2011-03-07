@@ -273,24 +273,24 @@ def sa1_analysis():
                                 '/home/floris/data/windtunnel/SA1/black_angle/SA1_20101113',                   
                                 ]
     if 0:
-        sa1_obj_id_files = [    '/home/floris/Documents/data/sa1_movie_data/SA1_20101023', 
-                                '/home/floris/Documents/data/sa1_movie_data/SA1_20101024',
-                                '/home/floris/Documents/data/sa1_movie_data/SA1_20101025',
-                                '/home/floris/Documents/data/sa1_movie_data/SA1_20101026',
-                                '/home/floris/Documents/data/sa1_movie_data/SA1_20101026_a',
-                                '/home/floris/Documents/data/sa1_movie_data/SA1_20101027',
-                                '/home/floris/Documents/data/sa1_movie_data/SA1_20101028',
-                                '/home/floris/Documents/data/sa1_movie_data/SA1_20101029',
-                                '/home/floris/Documents/data/sa1_movie_data/SA1_20101031',
-                                '/home/floris/Documents/data/sa1_movie_data/SA1_20101101',  
-                                '/home/floris/Documents/data/sa1_movie_data/SA1_20101109',  
-                                '/home/floris/Documents/data/sa1_movie_data/SA1_20101110',    
-                                '/home/floris/Documents/data/sa1_movie_data/SA1_20101111', 
-                                '/home/floris/Documents/data/sa1_movie_data/SA1_20101113',                   
+        sa1_obj_id_files = [    '/home/floris/data/sa1_movie_data/SA1_20101023', 
+                                '/home/floris/data/sa1_movie_data/SA1_20101024',
+                                '/home/floris/data/sa1_movie_data/SA1_20101025',
+                                '/home/floris/data/sa1_movie_data/SA1_20101026',
+                                '/home/floris/data/sa1_movie_data/SA1_20101026_a',
+                                '/home/floris/data/sa1_movie_data/SA1_20101027',
+                                '/home/floris/data/sa1_movie_data/SA1_20101028',
+                                '/home/floris/data/sa1_movie_data/SA1_20101029',
+                                '/home/floris/data/sa1_movie_data/SA1_20101031',
+                                '/home/floris/data/sa1_movie_data/SA1_20101101',  
+                                '/home/floris/data/sa1_movie_data/SA1_20101109',  
+                                '/home/floris/data/sa1_movie_data/SA1_20101110',    
+                                '/home/floris/data/sa1_movie_data/SA1_20101111', 
+                                '/home/floris/data/sa1_movie_data/SA1_20101113',                   
                                 ]
                                 
     if 1:
-        directory = '/home/floris/Documents/data/sa1_movie_data/obj_id_lists/'
+        directory = '/home/floris/data/sa1_movie_data/obj_id_lists/'
         cmd = 'ls ' + directory
         ls = os.popen(cmd).read()
         sa1_obj_id_files = ls.split('\n')
@@ -301,7 +301,7 @@ def sa1_analysis():
                 sa1_obj_id_files[i] = directory + sa1_obj_id_files[i]
     
                             
-    movie_list = '/home/floris/Documents/data/sa1_classification.txt'
+    movie_list = '/home/floris/data/sa1_movie_data/sa1_classification.txt'
 
 
     obj_id_list = None
