@@ -3,6 +3,7 @@ import cPickle as pickle
 import time
 import datetime
 import scipy.optimize
+import os
 
 #########################################################################################
 def get_movie_dict(movie_info_filename):
@@ -271,7 +272,7 @@ def sa1_analysis():
                                 '/home/floris/data/windtunnel/SA1/black_angle/SA1_20101111', 
                                 '/home/floris/data/windtunnel/SA1/black_angle/SA1_20101113',                   
                                 ]
-    if 1:
+    if 0:
         sa1_obj_id_files = [    '/home/floris/Documents/data/sa1_movie_data/SA1_20101023', 
                                 '/home/floris/Documents/data/sa1_movie_data/SA1_20101024',
                                 '/home/floris/Documents/data/sa1_movie_data/SA1_20101025',
@@ -287,6 +288,18 @@ def sa1_analysis():
                                 '/home/floris/Documents/data/sa1_movie_data/SA1_20101111', 
                                 '/home/floris/Documents/data/sa1_movie_data/SA1_20101113',                   
                                 ]
+                                
+    if 1:
+        directory = '/home/floris/Documents/data/sa1_movie_data/obj_id_lists/'
+        cmd = 'ls ' + directory
+        ls = os.popen(cmd).read()
+        sa1_obj_id_files = ls.split('\n')
+        for i, filename in enumerate(sa1_obj_id_files):
+            if len(filename) == 0:
+                del(sa1_obj_id_files[i])
+            else:
+                sa1_obj_id_files[i] = directory + sa1_obj_id_files[i]
+    
                             
     movie_list = '/home/floris/Documents/data/sa1_classification.txt'
 
