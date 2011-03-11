@@ -36,17 +36,22 @@ def load_trajectory(source=None, obj=None, num=1):
 
 class Dataset:
 
-    def __init__(self):
+    def __init__(self, like=None):
     
+        if like is None:
+            # trajectory related initializations
+            self.trajecs = {}
+            self.stimulus = None
+            self.n_artificial_trajecs = 0
             
-        # trajectory related initializations
-        self.trajecs = {}
-        self.stimulus = None
-        self.n_artificial_trajecs = 0
-        
-        self.datasets = []
-        self.filename = []
-        
+            self.datasets = []
+            self.filename = []
+        else:
+            self.trajecs = {}
+            self.stimulus = like.stimulus
+            self.n_artificial_trajecs = 0
+            self.datasets = like.datasets
+            self.filename = like.filename
         
     def set_stimulus (self, stimulus):
         self.stimulus = stimulus
@@ -112,7 +117,7 @@ class Dataset:
           
             # couple object ID dictionary with trajectory objects
             traj_id = (str(self.datasets[-1])+'_'+str(obj_id))
-            self.trajecs.setdefault(traj_id, Trajectory(kalman_rows, extra, stimulus = self.stimulus, fps = fps, post_type=None) )
+            self.trajecs.setdefault(traj_id, Trajectory(kalman_rows, extra, stimulus = self.stimulus, fps = fps, post_type=post_type) )
             #print 'loaded trajectory for object id: ', obj_id
         
             #self.trajecs.setdefault(obj, 

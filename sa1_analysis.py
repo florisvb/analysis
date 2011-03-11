@@ -186,11 +186,13 @@ def get_flydra_trajectory(npmovie, dataset):
     print 'dataset should include: ', time.strftime('%Y%m%d %H%M%S', t)
     print 'obj id: ', obj_id
     
-    try:
+    #try:
+    if 1:
         for k, trajectory in dataset.trajecs.items():
             t = k.lstrip('1234567890')
             t = t.lstrip('_')
             o = int(t)
+            print o, obj_id
             if obj_id == o:
                 # check timestamp:
                 time_err = np.abs(trajectory.epoch_time[0] - epochtime)
@@ -201,7 +203,8 @@ def get_flydra_trajectory(npmovie, dataset):
                     return trajectory, time_err
             else:
                 continue    
-    except:
+    if 0:
+    #except:
         npmovie.dataset_id = None
         npmovie.trajec = None
         return None, None   
@@ -209,7 +212,15 @@ def get_flydra_trajectory(npmovie, dataset):
     npmovie.trajec = None
     return None, None
         
-        
+def get_movie_from_obj_id(movie_info, objid):
+    
+    possible_movies = []
+    for key in movie_info.keys():
+        print movie_info[key]['Obj_ID'], objid
+        if movie_info[key]['Obj_ID'] == objid:
+            possible_movies.append(key)
+            
+    return possible_movies
     
 def get_movie_obj_id(movie, obj_id_list):
     movie_time = movie['EpochTime']
@@ -252,6 +263,37 @@ def get_awesome_movies(movies, behavior='landing', extras=None, awesome=1):
                      awesome_list.append((k, movie['Obj_ID'], movie['Date']))
     
     return awesome_list
+    
+    
+def merge_movie_info_dicts(movie_info_list):
+    
+    new_movie_info = movie_info_list[0]
+    
+    for i in range(1,len(movie_info_list)):
+        print i
+        new_movie_info.update(movie_info_list[i])
+        
+    return new_movie_info
+    
+def get_movie_objid_dict(movie_info):
+    
+    d = {}
+    for k, movie in movie_info.items(): 
+        objid = movie['Obj_ID']
+        if objid is not None:
+        
+            # allow for multiple movies for each objid - because objids (without the database prefix) are not necessarily unique
+            if objid in d:
+                mlist = d[objid]
+            else:
+                mlist = []
+                
+            info = (movie['Path'], k)
+                
+            mlist.append(info)
+            d.setdefault(objid, mlist)
+        
+    return d
 #########################################################################################
 
 

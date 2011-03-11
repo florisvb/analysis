@@ -7,7 +7,7 @@ import matplotlib.colorbar
 
 class Colorline ():
 
-    def __init__ (self, figure = None, colormap = 'copper', ylim = (-1,1), xlim = (-1,1), norm = None, hide_colorbar=False, ax0=None):
+    def __init__ (self, figure = None, colormap = 'copper', ylim = (-1,1), xlim = (-1,1), norm = None, hide_colorbar=False, ax0=None, ax0_size=[-.15,0.1,0.7,0.7]):
         
         # "figure" should be a matplotlib figure
         self.hide_colorbar = hide_colorbar
@@ -18,7 +18,7 @@ class Colorline ():
         else:
             self.fig = plt.figure(figure)
         if ax0 is None:
-            self.ax0 = self.fig.add_axes([-.15,0.1,0.7,0.7])
+            self.ax0 = self.fig.add_axes(ax0_size)
         else:
             self.ax0 = self.fig.add_axes(ax0)
         
@@ -37,22 +37,17 @@ class Colorline ():
         self.cmap = plt.get_cmap(colormap)
         self.cb = None
         
-        
-        
           
 
 
-    def colorline(self, x,y,z,linewidth=3, colormap = None ):
-
+    def colorline(self, x,y,z,linewidth=3, colormap = None, norm=None ):
         
         if colormap is None:
             cmap = self.cmap
         else:
             cmap = plt.get_cmap(colormap)
         
-        
-        
-        if self.norm is None:
+        if norm is None:
             self.norm = plt.Normalize(z.min(), z.max())
 
         if self.hide_colorbar is False:
@@ -72,7 +67,7 @@ class Colorline ():
         
         # Create the line collection object, setting the colormapping parameters.
         # Have to set the actual values used for colormapping separately.
-        lc = LineCollection(segments, cmap=self.cmap,norm=self.norm )
+        lc = LineCollection(segments, cmap=cmap,norm=self.norm )
         lc.set_array(z)
         lc.set_linewidth(linewidth)
         

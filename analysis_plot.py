@@ -10,10 +10,13 @@ import matplotlib.patches
 import matplotlib.backends.backend_pdf as pdf
 import flydra_floris_analysis as analysis
 import pickle
+import copy
 import floris
 import colorgrid
 from matplotlib.patches import Patch
-
+import matplotlib.patches as patches
+import matplotlib.collections as collections
+import matplotlib.transforms as transforms
 
 def load(filename, prep=True):
     fname = (filename)
@@ -63,7 +66,7 @@ def load_raw(filename, dataset=None, center = np.array([0,0,0]), radius = .01913
         post = analysis.Post(center, flyzone, radius, flight_buffer)
         dataset.set_stimulus(post)
         
-    dataset.load_data(filename = filename, fps = fps, kalman_smoothing = kalman_smoothing, objs=None)
+    dataset.load_data(filename = filename, fps = fps, kalman_smoothing = kalman_smoothing, objs=None, post_type=post_type)
 
     return dataset
     
@@ -78,16 +81,19 @@ def print_vals(dataset, trajectory, feature):
     
 ######################  count flies  ###########################
 
-def countflies (dataset, behavior = None):
+def countflies (dataset, behavior = None, post_types = ['black', 'checkered', None]):
 
     if behavior is not None:
     
         if type(behavior) is not list:
             behavior = [behavior]
+            
+        if type(post_types) is not list:
+            post_types = [post_types]
     
         fly = 0
         for k,v in dataset.trajecs.items():
-            if dataset.trajecs[k].behavior in behavior:
+            if dataset.trajecs[k].behavior in behavior and dataset.trajecs[k].post_type in post_types:
                 fly = fly+1
         return fly
         
@@ -441,7 +447,7 @@ def search_dist_to_post_r(dataset, trajectory, distance):
                 
 ######################  XY plot  ###########################
                 
-def xy_trajectories(dataset, behavior = 'landing', figure=None, firstfly=0, numfliestoplot=None, trajectory=None, rotate=False, flip=False, lim=(-.15, .15), zslice=(-.2,.2), colorcode='s', norm=None, show_saccades=False, print_obj_ids=False, dist_to_post=0.06, fontsize=8, saccade_threshold=0.3):
+def xy_trajectories(dataset, behavior = 'landing', figure=None, firstfly=0, numfliestoplot=None, trajectory=None, rotate=False, flip=False, lim=(-.15, .15), zslice=(-.2,.2), colorcode='s', norm=None, show_saccades=False, print_obj_ids=False, dist_to_post=0.06, fontsize=8, saccade_threshold=0.3, post_types=['black', 'checkered', None], hide_colorbar=False, ax0_size=[0.1,0.1,0.7,0.7]):
 
     if norm is None:
         if colorcode == 'z':
@@ -465,6 +471,9 @@ def xy_trajectories(dataset, behavior = 'landing', figure=None, firstfly=0, numf
         if type(trajectory) is not list:
             trajectory = [trajectory]
         behavior = 'all'
+        
+    if type(post_types) is not list:
+        post_types = [post_types]
                     
     if behavior == 'all':
         behavior = ['landing', 'flyby']
@@ -472,7 +481,7 @@ def xy_trajectories(dataset, behavior = 'landing', figure=None, firstfly=0, numf
         behavior = [behavior]
     
 
-    cl = colorline.Colorline(xlim=lim, ylim =lim, norm=norm, colormap = 'jet', figure=figure)
+    cl = colorline.Colorline(xlim=lim, ylim =lim, norm=norm, colormap = 'jet', figure=figure, hide_colorbar=hide_colorbar, ax0_size=ax0_size)
     el = Ellipse((0,0), radius*2, radius*2, facecolor='grey', alpha=0.4)
     cl.ax0.add_artist(el) 
 
@@ -480,7 +489,8 @@ def xy_trajectories(dataset, behavior = 'landing', figure=None, firstfly=0, numf
         trajectory = []
         fly = -1
         for k,v in dataset.trajecs.items():
-            if dataset.trajecs[k].behavior in behavior:
+            print dataset.trajecs[k].post_type
+            if dataset.trajecs[k].behavior in behavior and dataset.trajecs[k].post_type in post_types:
             
                 if numfliestoplot is not None:
                     fly = fly+1
@@ -491,8 +501,10 @@ def xy_trajectories(dataset, behavior = 'landing', figure=None, firstfly=0, numf
             
                 trajectory.append(k)
                 
-                
-                
+    # for arrow labels  
+    angle = np.pi*2 / float(numfliestoplot)
+    current_angle = 0.  
+    
     if trajectory is not None:
         for k in trajectory:
             if dataset.trajecs[k].behavior in behavior:
@@ -583,7 +595,11 @@ def xy_trajectories(dataset, behavior = 'landing', figure=None, firstfly=0, numf
                         
                     # search textpositions to see if our new text spot is too close: if so, move it to somewhere nearby and draw the arrow
                     currentpos = np.array([x[-1], y[-1]])
+                    textpositions.append(np.array([x[-1], y[-1]]))
                     arrow = None
+                    
+                    # use angles to get a nice spread of labels
+                    radius = .01
                     
                     tooclose = True
                     while tooclose:
@@ -591,14 +607,14 @@ def xy_trajectories(dataset, behavior = 'landing', figure=None, firstfly=0, numf
                         for testpos in textpositions:
                             err = currentpos-testpos
                             err_abs = sum(np.abs(err))
-                            if err_abs < 0.01:
-                                currentpos += np.array([0.01, 0.01])
+                            if err_abs < 0.03:
+                                currentpos += np.array([radius*np.cos(current_angle), radius*np.sin(current_angle)])
                                 arrow = dict(arrowstyle="->")
                                 print 'tooclose!', k
                                 tooclose=True
                     
                     textpositions.append(currentpos)
-                
+                    current_angle += angle
                     
                     cl.ax0.annotate(k, (x[-1], y[-1]),
                         xytext=currentpos,
@@ -613,13 +629,15 @@ def xy_trajectories(dataset, behavior = 'landing', figure=None, firstfly=0, numf
         cl.ax0.set_title(title)
         cl.ax0.set_xlabel('x dimension, meters')
         cl.ax0.set_ylabel('y dimension, meters')
-        if colorcode == 'z':
-            clabel = 'z dimension, meters'
-        if colorcode == 's':
-            clabel = 'speed, meters/sec'
-        if colorcode == 'r':
-            clabel = 'radial vel, m/s'
-        cl.ax1.set_ylabel(clabel)
+        
+        if not hide_colorbar:
+            if colorcode == 'z':
+                clabel = 'z dimension, meters'
+            if colorcode == 's':
+                clabel = 'speed, meters/sec'
+            if colorcode == 'r':
+                clabel = 'radial vel, m/s'
+            cl.ax1.set_ylabel(clabel)
                 
     pyplot.show()
 
@@ -2033,3 +2051,158 @@ def plot_trajectory(trajectory, lim=(-.15, .15), norm=None, colorcode='s', figur
     pyplot.show()
 
     return cl
+    
+    
+    
+#############
+# PDF for SA1 movies
+
+
+def pdf_sa1_landings(dataset, scale=10):
+    
+    plt.close('all')
+    pp =  pdf.PdfPages('SA1_landing_trajectories.pdf')
+    
+    nlandings = countflies(dataset, behavior='landing', post_types='black')
+    numfliestoplot = 3
+    
+    firstfly = 0
+    f = -1
+    while firstfly < nlandings:
+        f += 1
+        cl = xy_trajectories(dataset, figure=f, numfliestoplot=numfliestoplot, firstfly=firstfly, post_types='black', hide_colorbar=True, print_obj_ids=True)
+        firstfly += numfliestoplot
+        
+        plt.Figure.set_figsize_inches(cl.fig, [1*scale,1*scale])
+        plt.Figure.set_dpi(cl.fig, 72)
+        
+        pp.savefig(f)
+        plt.close(f)
+    
+    # Once you are done, remember to close the object:
+    pp.close()
+    print 'closed'
+    
+    
+#############
+# time/dist plot
+
+
+def plot_time_dist(trajec):
+    
+    xlim = [min(trajec.fly_time), max(trajec.fly_time)]
+    ylim = [min(trajec.dist_to_stim_r), max(trajec.dist_to_stim_r)]
+    norm = (0.02, .3)
+    figure = 2
+    
+    cl = colorline.Colorline(xlim=xlim, ylim =ylim, norm=norm, colormap = 'jet', figure=figure, hide_colorbar=True, ax0_size=[0.1,0.1,0.8,0.8])
+    
+    
+    x = trajec.fly_time
+    y = trajec.dist_to_stim_r
+    #y = np.ones_like(x)
+    
+    cl.colorline(x, y, trajec.speed,linewidth=y*100, colormap='Blues')
+    
+    x2, y2 = get_offset(cl.ax0, x, y, .005)
+    
+    cl.colorline(x2, y2, trajec.angle_to_post,linewidth=3, colormap='Reds')
+    
+    
+    
+    
+def get_offset(ax, x, y, offset, position='above'):
+
+    if position == 'above':
+        p = -1
+    elif position == 'below':
+        p = +1
+
+    # axis properties
+    window_extent = ax.get_window_extent()
+    xscale = np.diff(ax.get_xlim())[0]
+    yscale = np.diff(ax.get_ylim())[0] / (window_extent._get_height() / window_extent._get_width())
+    
+    # get offset
+    dx = np.diff(x/xscale)
+    dx = np.hstack( (dx[0], dx) )
+    dy = np.diff(y/yscale)
+    dy = np.hstack( (dy[0], dy) )
+    theta = np.arctan2(-1*dx,dy)
+    offset_x = offset*np.cos(theta)
+    offset_y = offset*np.sin(theta)
+    
+    return x+p*offset_x*xscale, y+p*offset_y*yscale
+    
+    
+    
+    
+def shadow():
+    
+    import numpy as np
+
+
+    fig = plt.figure()
+    ax = fig.add_subplot(111)
+
+    # make a simple sine wave
+    x = np.arange(0., 2., 0.01)
+    y = np.sin(2*np.pi*x)
+    line, = ax.plot(x, y, lw=3, color='blue')
+
+    # shift the object over 2 points, and down 2 points
+    
+    fig_trans = fig.dpi_scale_trans
+    fig_mat = fig_trans.get_matrix()
+    fig_mat[0,0] *= 2
+    
+    dx, dy = 0, .1
+    offset = transforms.ScaledTranslation(dx, dy,
+      fig_trans)
+      
+    print offset
+      
+    shadow_transform = ax.transData + offset
+
+    # now plot the same data with our offset transform;
+    # use the zorder to make sure we are below the line
+    ax.plot(x, y, lw=3, color='gray',
+      transform=shadow_transform,
+      zorder=0.5*line.get_zorder())
+
+    ax.set_title('creating a shadow effect with an offset transform')
+    plt.show()
+
+    return ax
+    
+    
+    
+def collection_test():
+
+    cmap = plt.get_cmap('jet')
+    x = np.linspace(0,100,100)
+    y = x**2
+    z = np.sin(x)
+    
+    
+    points = np.array([x, y]).T.reshape(-1, 1, 2)
+    segments = np.concatenate([points[:-1], points[1:]], axis=1)
+    
+    # Create the line collection object, setting the colormapping parameters.
+    # Have to set the actual values used for colormapping separately.
+    lc = collections.LineCollection(segments, cmap=cmap )
+    lc.set_array(z)
+    lc.set_linewidth(3)
+    
+    return lc
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
