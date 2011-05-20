@@ -17,6 +17,20 @@ from matplotlib.patches import Patch
 import matplotlib.patches as patches
 import matplotlib.collections as collections
 import matplotlib.transforms as transforms
+from matplotlib.patches import Arrow
+import matplotlib.cm as cm
+import matplotlib.colors as colors
+
+import sys
+sys.path.append('/home/floris/src/pymovie2')
+import sa1_movie_plots as smp
+import numpyimgproc as nim
+import scipy.ndimage as ndimage
+import matplotlib.mlab as mlab
+
+import flydra_floris_analysis as ffa
+
+
 
 def load(filename, prep=True):
     fname = (filename)
@@ -28,6 +42,25 @@ def load(filename, prep=True):
         dataset.prep_data()
         
     return dataset
+    
+def make_behavior_dataset(dataset, filename='landing_dataset', behavior='landing'):
+    new_dataset = ffa.Dataset(like=dataset)
+    if type(behavior) is not list:
+        behavior = [behavior]
+    for k,v in dataset.trajecs.items():
+        if dataset.trajecs[k].behavior in behavior:
+            new_dataset.trajecs.setdefault(k, v)
+    save(new_dataset, filename)
+    
+    
+def get_post_type_for_trajectory(trajec, post_type_dict=None):
+    
+    local_time = time.localtime(trajec.epoch_time[0])
+    datetime = str(local_time.tm_year) + str(local_time.tm_mon) + str(local_time.tm_mday)
+    print datetime
+
+    #trajec.post_type = post_type_dict[datetime]
+    
 
 def initialize_dataset(filename):
     try:
@@ -447,7 +480,29 @@ def search_dist_to_post_r(dataset, trajectory, distance):
                 
 ######################  XY plot  ###########################
                 
-def xy_trajectories(dataset, behavior = 'landing', figure=None, firstfly=0, numfliestoplot=None, trajectory=None, rotate=False, flip=False, lim=(-.15, .15), zslice=(-.2,.2), colorcode='s', norm=None, show_saccades=False, print_obj_ids=False, dist_to_post=0.06, fontsize=8, saccade_threshold=0.3, post_types=['black', 'checkered', None], hide_colorbar=False, ax0_size=[0.1,0.1,0.7,0.7]):
+def xy_trajectories(dataset=None, trajectory_objects=None, behavior = ['all'], figure=None, firstfly=0, numfliestoplot=None, trajectory=None, rotate=False, flip=False, lim=(-.15, .15), zslice=(-.2,.2), colorcode='s', norm=None, show_saccades=False, print_obj_ids=False, dist_to_post=0.06, fontsize=8, saccade_threshold=0.3, post_types=['black', 'checkered', None], hide_colorbar=False, ax0_size=[0.1,0.1,0.7,0.7], trajec_alpha=1):
+
+    if numfliestoplot is None:
+        if trajectory is not None:
+            numfliestoplot = len(trajectory)
+        else:
+            numfliestoplot = countflies(dataset, behavior=behavior)
+        
+
+    if dataset is None:
+        class FakeDataset:
+            def __init__(self):
+                self.trajecs = {}
+        dataset = FakeDataset()
+        trajectory = []
+        if type(trajectory_objects) is not list:
+            trajectory_objects = [trajectory_objects]
+        for trajec in trajectory_objects:
+            dataset.trajecs.setdefault(trajec.obj_id, trajec)
+            trajectory.append(trajec.obj_id)
+        dataset.stimulus = dataset.trajecs[dataset.trajecs.keys()[0]].stimulus
+        numfliestoplot = len(trajectory)
+        print 'number of trajecs to plot: ', len(trajectory)
 
     if norm is None:
         if colorcode == 'z':
@@ -476,7 +531,7 @@ def xy_trajectories(dataset, behavior = 'landing', figure=None, firstfly=0, numf
         post_types = [post_types]
                     
     if behavior == 'all':
-        behavior = ['landing', 'flyby']
+        behavior = ['landing', 'flyby', 'unknown']
     if type(behavior) is not list:
         behavior = [behavior]
     
@@ -491,7 +546,7 @@ def xy_trajectories(dataset, behavior = 'landing', figure=None, firstfly=0, numf
         for k,v in dataset.trajecs.items():
             print dataset.trajecs[k].post_type
             if dataset.trajecs[k].behavior in behavior and dataset.trajecs[k].post_type in post_types:
-            
+
                 if numfliestoplot is not None:
                     fly = fly+1
                     if fly <= firstfly:
@@ -500,15 +555,24 @@ def xy_trajectories(dataset, behavior = 'landing', figure=None, firstfly=0, numf
                         break
             
                 trajectory.append(k)
+    
+    else:
+        trajectory = trajectory[firstfly:firstfly+numfliestoplot]
+    
+    
+    print len(trajectory)
+    
+    
                 
     # for arrow labels  
+    print numfliestoplot
     angle = np.pi*2 / float(numfliestoplot)
     current_angle = 0.  
     
     if trajectory is not None:
         for k in trajectory:
             if dataset.trajecs[k].behavior in behavior:
-            
+                trajec = dataset.trajecs[k]
                 if 'unclassified' not in behavior:
                     index = search_dist_to_post_r(dataset, k, dist_to_post)
                     x = dataset.trajecs[k].positions[index][0]
@@ -531,7 +595,7 @@ def xy_trajectories(dataset, behavior = 'landing', figure=None, firstfly=0, numf
                     Fy = np.sign(vely_rot[index])
         
                 fr_land = -1
-                if dataset.trajecs[k].behavior is 'landing':
+                if dataset.trajecs[k].behavior == 'landing':
                     fr_land = dataset.trajecs[k].frame_of_landing
                     x = dataset.trajecs[k].positions[fr_land,0]
                     y = dataset.trajecs[k].positions[fr_land,1]
@@ -554,9 +618,15 @@ def xy_trajectories(dataset, behavior = 'landing', figure=None, firstfly=0, numf
                 cl.ax0.add_artist(el_start)
                 
                 if show_saccades is True:
-                    saccades = calc_saccades(dataset, k, threshold=saccade_threshold)
-                    for saccade in saccades:
-                        el_saccade = Ellipse((saccade[0],saccade[1]), .001, .001, facecolor='red', edgecolor='red', alpha=1)
+                    #saccades = calc_saccades(dataset, k, threshold=saccade_threshold)
+                    for saccade in trajec.saccades:
+                        print saccade
+                        if trajec.behavior == 'landing':
+                            if saccade > trajec.frame_of_landing:
+                                continue
+                        sac_x = trajec.positions[saccade, 0]
+                        sac_y = trajec.positions[saccade, 1]
+                        el_saccade = Ellipse((sac_x, sac_y), .001, .001, facecolor='red', edgecolor='red', alpha=1)
                         cl.ax0.add_artist(el_saccade)
                     
                 x = dataset.trajecs[k].positions[0:fr_land,0]-dataset.stimulus.center[0]
@@ -585,7 +655,7 @@ def xy_trajectories(dataset, behavior = 'landing', figure=None, firstfly=0, numf
                         c = s
                     if colorcode == 'r':
                         c = dataset.trajecs[k].polar_vel[0:fr_land, 0]
-                    cl.colorline(x, y, c,linewidth=1)
+                    cl.colorline(x, y, c,linewidth=1, norm=norm, alpha=trajec_alpha)
                     
                 if print_obj_ids is True:
                     try:
@@ -638,7 +708,7 @@ def xy_trajectories(dataset, behavior = 'landing', figure=None, firstfly=0, numf
             if colorcode == 'r':
                 clabel = 'radial vel, m/s'
             cl.ax1.set_ylabel(clabel)
-                
+    cl.ax0.set_aspect('equal')
     pyplot.show()
 
     return cl
@@ -2088,10 +2158,10 @@ def pdf_sa1_landings(dataset, scale=10):
 # time/dist plot
 
 
-def plot_time_dist(trajec):
+def plot_offset_example(trajec):
     
     xlim = [min(trajec.fly_time), max(trajec.fly_time)]
-    ylim = [min(trajec.dist_to_stim_r), max(trajec.dist_to_stim_r)]
+    ylim = [min(trajec.dist_to_stim_r)-.04, max(trajec.dist_to_stim_r)]
     norm = (0.02, .3)
     figure = 2
     
@@ -2100,17 +2170,114 @@ def plot_time_dist(trajec):
     
     x = trajec.fly_time
     y = trajec.dist_to_stim_r
+    one = np.ones_like(x)*-.03
     #y = np.ones_like(x)
     
-    cl.colorline(x, y, trajec.speed,linewidth=y*100, colormap='Blues')
+    cl.colorline(x, y, trajec.speed,linewidth=7, colormap='Blues')
+    cl.colorline(x, one, trajec.speed,linewidth=7, colormap='Blues')
     
-    x2, y2 = get_offset(cl.ax0, x, y, .005)
+    x2, y2 = get_offset(cl.ax0, x, y, .01)
     
-    cl.colorline(x2, y2, trajec.angle_to_post,linewidth=3, colormap='Reds')
+    cl.colorline(x2, y2, trajec.angle_to_post,linewidth=7, colormap='Reds')
+    cl.colorline(x2, one+.005, trajec.angle_to_post,linewidth=7, colormap='Reds')
+    cl.colorline(x2, one+.02, trajec.speed,linewidth=trajec.dist_to_stim_r*50, colormap='Blues')
+    
+    cl.ax0.set_xlabel('time, sec')
+    cl.ax0.set_ylabel('dist from post, m')
+    
+    return cl
+    
+def plot_dist_ori(npmovie, figure=None):
+
+    trajec = npmovie.trajec
+    
+    x = npmovie.trajec.epoch_time[npmovie.sync2d3d.frames3d] - npmovie.time_of_landing
+    y = trajec.dist_to_stim_r
+    one = np.zeros_like(x)
+    
+    xlim = [min(x), max(x)]
+    ylim = [-.2, .2]
+    norm = (0.02, .3)
+    
+    
+    cl = colorline.Colorline(xlim=xlim, ylim =ylim, norm=norm, colormap = 'jet', figure=figure, hide_colorbar=True, ax0_size=[0.1,0.1,0.8,0.8])
     
     
     
     
+    #cl.colorline(x, one, trajec.speed,linewidth=trajec.dist_to_stim_r*200+5, colormap='copper', zorder=0)
+    
+    # speed + dist to post
+    #angle_to_post = npmovie.flycoord.postangle[npmovie.sync2d3d.frames2d]
+    #cl.colorline(x, angle_to_post, trajec.speed,linewidth=trajec.dist_to_stim_r*200, colormap='Blues', zorder=1)
+    
+    # ori arrows
+    if 1:
+        arrow_radius = .01
+        slipangle =  npmovie.flycoord.slipangle[npmovie.sync2d3d.frames2d]*-1 # need -1 because slip angle is the angle between flight and orientation, we want the opposite for this plot
+        dy = np.sin(npmovie.flycoord.slipangle[npmovie.sync2d3d.frames2d])*arrow_radius
+        dx = np.cos(npmovie.flycoord.slipangle[npmovie.sync2d3d.frames2d])*arrow_radius
+        s = npmovie.trajec.speed[npmovie.sync2d3d.frames3d]
+        interval = 1
+        i = 0
+        cmap = cm.jet
+        norm = colors.Normalize(0,.2)
+        while i < len(x):
+            print slipangle[i]*180/np.pi, dx[i], dy[i]
+            # 
+            arrow = Arrow(x[i], one[i], dx[i], dy[i], width=.002, color=cmap(norm(s[i])), zorder=5 )
+            cl.ax0.add_artist(arrow)
+            i += interval
+        
+    # leg extension
+    legs = npmovie.kalmanobj.legs[npmovie.sync2d3d.frames2d]
+    legs = legs.reshape(len(legs))
+    legs = np.array(legs>100, dtype=np.float)
+    cl.colorline(x, one, legs,linewidth=2, colormap='Reds', zorder=3, norm=(0,1))
+    
+    
+    cl.ax0.imshow(npmovie.vision_timeseries[0].T, pyplot.get_cmap('gray'), origin='upper', zorder=-1, extent=[xlim[0], xlim[1], ylim[0], ylim[1]])
+    
+    cl.ax0.set_xlabel('time, seconds')
+    cl.ax0.set_ylabel('horizontal slice of fly eye view, degrees')
+    
+    nyticks = 9
+    default_yticks = cl.ax0.get_yticks()
+    yticks = np.linspace(default_yticks[0], default_yticks[-1], nyticks, endpoint=False).tolist()
+    yticklabels = [-180, -135, -90, -45, -0, 45, 90, 135, 180]
+    
+    cl.ax0.set_yticks(yticks)
+    cl.ax0.set_yticklabels(yticklabels)
+    cl.ax0.set_title(npmovie.id + ' : ' + npmovie.behavior)
+    return cl        
+        
+        
+def pdf_dist_ori(movie_dataset, scale=10):
+    
+    plt.close('all')
+    pp =  pdf.PdfPages('sa1_visual_flow_trajectories_2.pdf')
+    
+    f = -1
+    for k, npmovie in movie_dataset.items():
+        if npmovie.trajec is not None:
+            if npmovie.vision_timeseries is not None:
+                try:
+                    print npmovie.id
+                    f += 1
+                    cl = plot_vision_flight_direction(npmovie, figure=f)
+                    
+                    plt.Figure.set_figsize_inches(plt.figure(f), [1*scale,1*scale])
+                    plt.Figure.set_dpi(plt.figure(f), 72)
+                    
+                    pp.savefig(f)
+                    plt.close(f)
+                except:
+                    print 'failed'
+    # Once you are done, remember to close the object:
+    pp.close()
+    print 'closed'
+        
+        
 def get_offset(ax, x, y, offset, position='above'):
 
     if position == 'above':
@@ -2198,11 +2365,419 @@ def collection_test():
     
     
     
+#######################
+def plot_vision_flight_direction(npmovie, figure=1):
+
+    trajec = npmovie.trajec
+    
+    time = npmovie.trajec.epoch_time[npmovie.sync2d3d.frames3d] - npmovie.time_of_landing
+    slipangle =  npmovie.flycoord.slipangle[npmovie.sync2d3d.frames2d]
+    speed = npmovie.trajec.speed[npmovie.sync2d3d.frames3d]
+    visual_flow_centered_on_orientation = npmovie.vision_avg.T
+    scale = 2*np.pi/float(npmovie.vision_timeseries[0].shape[1])
+
+    def get_vision(angle, flydra_frame):    
+        if np.isnan(angle):
+            return np.nan
+        angle_range = visual_flow_centered_on_orientation.shape[0]*scale
+        om_angles = np.linspace(-1*angle_range/2., angle_range/2., visual_flow_centered_on_orientation.shape[0])
+        return np.interp(angle, om_angles, visual_flow_centered_on_orientation[:,flydra_frame] )
+        
+    visual_resolution = 720
+    blank = np.nan*np.ones([visual_resolution, visual_flow_centered_on_orientation.shape[1]])
+    for c in range(blank.shape[1]): 
+        blank[int(visual_resolution/4.-slipangle[c]*180/np.pi):int(visual_resolution*3/4.-slipangle[c]*180/np.pi),c] = np.linspace(-np.pi, np.pi, int(visual_resolution/2.))
+        
+    vision = np.zeros_like(blank)
+    for r in range(blank.shape[0]):
+        for c in range(blank.shape[1]):
+            vision[r,c] = get_vision(blank[r,c], c)
+            
+            
+    xlim = [min(time), max(time)]
+    ylim = [-2*np.pi, 2*np.pi]
+    norm = (0.02, .3)
+    
+    
+    cl = colorline.Colorline(xlim=xlim, ylim =ylim, norm=norm, colormap = 'jet', figure=figure, hide_colorbar=True, ax0_size=[0.1,0.1,0.5,0.8])
+    
+    # leg extension
+    legs = npmovie.kalmanobj.legs[npmovie.sync2d3d.frames2d]
+    legs = legs.reshape(len(legs))
+    legs = np.array(legs>100, dtype=np.float)
+    cl.colorline(time, slipangle, legs,linewidth=2, colormap='Reds', zorder=3, norm=(0,1))
+    cl.colorline(time, np.zeros_like(time), speed,linewidth=2, colormap='jet', zorder=2, norm=(0.0,.2))
+            
+    cl.ax0.imshow(vision, pyplot.get_cmap('gray'), origin='upper', zorder=-1, extent=[xlim[0], xlim[1], ylim[0], ylim[1]], aspect='auto', interpolation='bicubic')
+            
+            
+    # ori arrows
+    if 1:
+        arrow_radius = .03
+        dy = np.sin(npmovie.flycoord.slipangle[npmovie.sync2d3d.frames2d])*np.diff(ylim)[0]*arrow_radius
+        dx = np.cos(npmovie.flycoord.slipangle[npmovie.sync2d3d.frames2d])*np.diff(xlim)[0]*arrow_radius
+        interval = 1
+        i = 0
+        cmap = cm.jet
+        norm = colors.Normalize(0,.2)
+        while i < len(time):
+            # 
+            arrow = Arrow(time[i], 0, dx[i], dy[i], width=.002, color=cmap(norm(speed[i])), zorder=5 )
+            cl.ax0.add_artist(arrow)
+            i += interval
+            
+    cl.ax0.set_xlabel('time, seconds')
+    cl.ax0.set_ylabel('horizontal slice of fly eye view, radians')
+    cl.ax0.set_title(npmovie.id + ' : ' + npmovie.behavior)
+    
+    if 0:
+        d = get_dist_to_nearest_edge(npmovie)
+        edge = d+slipangle[0:-2]
+        print edge.shape
+        cl.colorline(time[1:-1], edge, np.ones_like(edge),linewidth=1, colormap='Blues', zorder=2, norm=(0.0,1)) # need to fiddle indices because of the whole filtering and edge finding process
+    
+    
+    v = npmovie.vision_avg.T
+    edge_list = []
+    for c in range(v.shape[1]):
+        v_c = v[:,c]
+        edges, contrast = get_edges(v_c, threshold=.002)
+        edge_list.append(edges)
+        
+    for i in range(len(edge_list)):
+        edge_arr = -1*(np.array(edge_list[i])-v.shape[0]/2.)*scale+slipangle[i]
+        cl.ax0.plot( time[i]*np.ones_like(edge_arr), edge_arr, 'b.') 
+
+
+    
+            
+    if 0:
+        frames = smp.get_active_frames(npmovie)
+        cl2 = smp.xy_kalman(npmovie, figure=figure, frames=frames, colormap='gray', ax0_size=[0.55,0.1,0.4,0.4])
+        
+        # get strobe image:
+        strobe_img = smp.strobe_from_npmovie(npmovie, interval=210, frames=frames)
+        strobe_img = nim.rotate_image(strobe_img, np.array([[0,1],[-1,0]]))
+        cl2.ax0.imshow(strobe_img, pyplot.get_cmap('gray'), origin='lower')
+        cl2.ax0.set_xticklabels([])
+        cl2.ax0.set_yticklabels([])
+            
+            
+    return cl
     
     
     
+def get_local_maxima(arr):
+    # using second derivative test
+    diff_arr = np.hstack( ([1],np.diff(arr)) )
+    d_diff_arr = np.hstack( ([1],np.diff(diff_arr)) )
+    cc_down = np.array(d_diff_arr < 0, dtype=np.uint8)
+    local_optima = np.array(np.abs(diff_arr) < 0.00005, dtype=np.uint8)
+    local_maxima = cc_down*local_optima
+    blobs, nblobs = ndimage.label(local_maxima)
+    local_maxima_non_continuous = np.zeros_like(local_maxima)
+    for n in range(1,nblobs+1):
+        blob_loc = np.where(blobs==n)[0]
+        blob_center = int(np.mean(blob_loc))
+        local_maxima_non_continuous[blob_center] = 1
+    local_maxima_locs = np.where(local_maxima_non_continuous == 1)[0]
+    #plt.plot(local_maxima_locs, arr[local_maxima_locs.tolist()], '*')
+    return local_maxima_locs.tolist()
+    
+def get_local_maxima_stepping(arr):
+    # using second derivative test
+    diff_arr = np.hstack( ([1],np.diff(arr)) )
+    diff_arr_sign = np.sign(diff_arr)
+    d_diff_arr_sign = np.hstack( (np.diff(diff_arr_sign),[1]) )
+    
+    local_maxima = np.array(d_diff_arr_sign <= -1, dtype=np.uint8)
+    #local_maxima = cc_down*local_optima
+    blobs, nblobs = ndimage.label(local_maxima)
+    local_maxima_non_continuous = np.zeros_like(local_maxima)
+    for n in range(1,nblobs+1):
+        blob_loc = np.where(blobs==n)[0]
+        blob_center = int(np.mean(blob_loc))
+        local_maxima_non_continuous[blob_center] = 1
+    local_maxima_locs = np.where(local_maxima_non_continuous == 1)[0]
+    #plt.plot(local_maxima_locs, arr[local_maxima_locs.tolist()], '*')
+    return local_maxima_locs.tolist()
+    
+def low_pass(arr, cutoff, plot=False):
+    res = scipy.fft(arr)
+    fil = res[:]
+    for i in range(len(fil)):
+        if i>cutoff: fil[i] = 0
+    filtered = scipy.ifft(fil)
+    
+    if plot:
+        plt.plot(arr)
+        plt.plot(filtered)
+    return filtered
+    
+def get_edges(vis_arr, threshold=0, plot=False):
+    #vis_arr = low_pass(vis_arr, 50)
+    filtered = np.abs(smooth_vision(vis_arr)[:,1])
+    edges = np.array(get_local_maxima_stepping(filtered))
+    thresholded_edges = edges[np.where(filtered[edges]>threshold)[0].tolist()].tolist()
+    if plot:
+        plt.plot(filtered/np.max(filtered))
+        plt.plot(vis_arr/np.max(vis_arr))
+        plt.plot(thresholded_edges, filtered[thresholded_edges]/np.max(filtered), '*')
+    return thresholded_edges, filtered
+    
+def get_dist_to_nearest_edge(npmovie, threshold=.002):
+    
+    v = npmovie.vision_avg.T
+    d = np.zeros(v.shape[1])
+    
+    scale = 2*np.pi/float(npmovie.vision_timeseries[0].shape[1])
+    
+    for c in range(v.shape[1]):
+        v_c = v[:,c]
+        edges, contrast = get_edges(v_c, threshold=threshold)
+        if len(edges)==0:
+            edges = [v.shape[0]]
+        nearest_edge = np.array(edges)[np.argmin(np.abs(v.shape[0]/2.-np.array(edges)))]
+        d[c] = (v.shape[0]/2. - nearest_edge)*scale
+        
+    return d
+    
+    
+def show_edges(npmovie):
+    
+    time = npmovie.trajec.epoch_time[npmovie.sync2d3d.frames3d] - npmovie.time_of_landing
+    v = npmovie.vision_avg.T
+    edge_timeseries = []
+        
+    d = get_dist_to_nearest_edge(npmovie)        
+        
+    print time.shape, (d+v.shape[0]/2.).shape
+    plt.plot( time[0:-2], d+v.shape[0]/2., '*')
+        
+    xlim = [min(time), max(time)]
+    ylim = [0, v.shape[0]]
+        
+    plt.imshow(v, pyplot.get_cmap('gray'), origin='upper', zorder=-1, aspect='auto',extent=[xlim[0], xlim[1], ylim[0], ylim[1]] )
+    
+    
+def smooth_vision(vis_arr, plot=False): 
+    data = vis_arr.reshape([len(vis_arr),1])
+    Q = np.eye(2) # proc noise
+    Q[0,0] = 1
+    Q[1,1] = .01
+    R = np.array([100]) # obs noise
+    x,V = smp.smooth(data,Q,R)
+    if plot:
+        plt.plot(data/np.max(data))
+        plt.plot(x[:,0]/np.max(x[:,0]))
+        plt.plot(np.abs(x[:,1])/np.max(np.abs(x[:,1])))
+    return x
+
+
+    
+def calc_expansion(v1, v2, plot=False):
+
+    vd = v2-v1
+    v2_diff = np.hstack( (0, np.diff(v2)) )
+    vd *= np.sign(v2_diff)
     
     
     
+    expansion = np.zeros_like(v1)
+    expansion_raw = np.zeros_like(v1)
+    motion_squared = np.zeros_like(v1)
+    
+    for i in range(1,len(v1)-1):    
+        l = len(v1)
+        integration_radius = np.min( [(i-0), (l-i)] )
+        integration_start = i-integration_radius
+        integration_end = i+integration_radius
+        #print integration_start, integration_end
+        vd_integration_segment = vd[integration_start:integration_end]
+        
+        #vd_expansion_mask = vd_integration_segment < 0
+        
+        expansion_raw[i] = np.sum( (vd_integration_segment) * (vd_integration_segment[::-1]) ) # multiply the two segments in reversed order from one another
+        
+        direction = np.sign( np.sum( vd[integration_start:integration_start+integration_radius] )) # neg = left; pos = right
+        
+        
+        expansion[i] = direction*np.abs(expansion_raw[i] * (expansion_raw[i]<0))
+    
+    #motion_mask = np.abs(vd) < 0.05
+    
+    #expansion /= np.max(np.abs(expansion))
     
     
+    if plot:
+        def normalize(n):
+            return n / np.max(np.abs(n))
+            
+        plt.plot(normalize(v1))
+        plt.plot(normalize(v2))
+        plt.plot(vd)
+        plt.plot(expansion)
+        
+        #plt.plot(expansion_raw)
+        #plt.plot(motion_squared)
+    return expansion
+    
+    
+def save_emd_movie(npmovie):
+    def normalize(n):
+            return n / np.max(np.abs(n))
+    
+    v = npmovie.vision_avg.T
+    
+    for i in range(v.shape[1]-1):    
+        
+        v1 = v[:,i]
+        v2 = v[:,i+1]
+        vd = v2-v1
+        v2_diff = np.hstack( (0, np.diff(v2)) )
+        vd *= np.sign(v2_diff)
+        expansion = calc_expansion(v1,v2)
+        
+        plt.close('all')
+        plt.figure(i)
+        
+        plt.axvline(x=len(v1)/2., ymin=-.5, ymax=1, color='b', ls='--')
+        plt.plot(normalize(v1), 'gray')
+        plt.plot(normalize(v2), 'black')
+        plt.plot(vd, 'red')
+        plt.plot(expansion)
+        
+        plt.xlim([0,len(v1)])
+        plt.ylim([1,-.5])    
+    
+        fname = 'emd' + str(i)
+        fid = open(fname, mode='w')
+        plt.savefig(fid)
+        fid.close()
+        
+    
+    
+def tmp(npmovie):   
+
+
+    npmovie.trajec.angle_subtended_by_post = 2*np.arcsin( npmovie.trajec.stimulus.radius / (npmovie.trajec.dist_to_stim_r[npmovie.sync2d3d.frames3d]+npmovie.trajec.stimulus.radius) ).reshape([npmovie.trajec.dist_to_stim_r[npmovie.sync2d3d.frames3d].shape[0],1])
+
+    y = np.sin(npmovie.sync2d3d.smoothyaw[:,0])
+    x = np.cos(npmovie.sync2d3d.smoothyaw[:,0])
+    smooth_long_axis_3vec = np.hstack( (np.array([x,y]).T, np.zeros([len(x),1]) ) )
+    vec_to_post_3vec = -1*np.hstack( (npmovie.trajec.positions[npmovie.sync2d3d.frames3d,0:2], np.zeros([len(npmovie.sync2d3d.frames3d),1]) ) ) # -1* is because essentially we just subtract the vector to the post from (0,0)
+    
+    signed_angle_to_post_smooth = np.sum(np.cross( vec_to_post_3vec, smooth_long_axis_3vec ), axis=1).reshape([vec_to_post_3vec.shape[0],1])
+    mag_vec_to_post = np.array([ np.linalg.norm( vec_to_post_3vec[i,:] )  for i in range(vec_to_post_3vec.shape[0]) ]).reshape([vec_to_post_3vec.shape[0], 1])
+    mag_long_axis = np.array([ np.linalg.norm( smooth_long_axis_3vec[i,:] )  for i in range(smooth_long_axis_3vec.shape[0]) ]).reshape([smooth_long_axis_3vec.shape[0], 1])
+    sin_signed_angle_to_post = signed_angle_to_post_smooth / (mag_vec_to_post*mag_long_axis)
+    
+    angle_to_post = np.arcsin(sin_signed_angle_to_post)
+    angle_to_edge = np.abs(angle_to_post)-np.abs(npmovie.trajec.angle_subtended_by_post)/2.
+    
+    
+    lower = (angle_to_post-npmovie.trajec.angle_subtended_by_post/2.).reshape([len(angle_to_post)])
+    upper = (angle_to_post+npmovie.trajec.angle_subtended_by_post/2.).reshape([len(angle_to_post)])
+    
+    
+    if 0:
+        fig = plt.figure()
+        rect = .1,.1,.8,.8
+        ax1 = fig.add_axes(rect)
+        
+        x = np.arange(0.0, 2, 0.01)
+        y1 = np.sin(2*np.pi*x)
+        y2 = 1.2*np.sin(4*np.pi*x)
+
+        #ax1.fill_between(x, y2, y1)
+        ax1.fill_between(npmovie.sync2d3d.frames3d[0:-2], upper[0:-2], lower[0:-2])
+    
+    if 1:
+        fig = plt.figure()
+        ax1 = plt.subplot(411)
+        ax1.plot(np.diff(npmovie.trajec.angle_subtended_by_post[0:-2].T)[0])
+        
+        ax2 = plt.subplot(412)
+        ax2.plot(angle_to_edge)
+    
+        ax3 = plt.subplot(413)
+        ax3.plot(npmovie.sync2d3d.smoothyaw[:,1])
+        
+        ax4 = plt.subplot(414)
+        ax4.plot(npmovie.flycoord.velocities[npmovie.sync2d3d.frames2d,1])
+    
+    
+    return upper, lower
+    
+    
+def get_angle_to_edges(npmovie):
+    
+    npmovie.trajec.angle_subtended_by_post = 2*np.arcsin( npmovie.trajec.stimulus.radius / (npmovie.trajec.dist_to_stim_r[npmovie.sync2d3d.frames3d]+npmovie.trajec.stimulus.radius) ).reshape([npmovie.trajec.dist_to_stim_r[npmovie.sync2d3d.frames3d].shape[0],1])
+
+    y = np.sin(npmovie.sync2d3d.smoothyaw[:,0])
+    x = np.cos(npmovie.sync2d3d.smoothyaw[:,0])
+    smooth_long_axis_3vec = np.hstack( (np.array([x,y]).T, np.zeros([len(x),1]) ) )
+    vec_to_post_3vec = -1*np.hstack( (npmovie.trajec.positions[npmovie.sync2d3d.frames3d,0:2], np.zeros([len(npmovie.sync2d3d.frames3d),1]) ) ) # -1* is because essentially we just subtract the vector to the post from (0,0)
+    
+    signed_angle_to_post_smooth = np.sum(np.cross( vec_to_post_3vec, smooth_long_axis_3vec ), axis=1).reshape([vec_to_post_3vec.shape[0],1])
+    mag_vec_to_post = np.array([ np.linalg.norm( vec_to_post_3vec[i,:] )  for i in range(vec_to_post_3vec.shape[0]) ]).reshape([vec_to_post_3vec.shape[0], 1])
+    mag_long_axis = np.array([ np.linalg.norm( smooth_long_axis_3vec[i,:] )  for i in range(smooth_long_axis_3vec.shape[0]) ]).reshape([smooth_long_axis_3vec.shape[0], 1])
+    sin_signed_angle_to_post = signed_angle_to_post_smooth / (mag_vec_to_post*mag_long_axis)
+    
+    angle_to_post = np.arcsin(sin_signed_angle_to_post)
+    angle_to_edge = np.abs(angle_to_post)-np.abs(npmovie.trajec.angle_subtended_by_post)/2.
+    
+    
+    lower = (angle_to_post-npmovie.trajec.angle_subtended_by_post/2.).reshape([len(angle_to_post)])
+    upper = (angle_to_post+npmovie.trajec.angle_subtended_by_post/2.).reshape([len(angle_to_post)])
+    
+    lower = np.nan_to_num(lower)
+    upper = np.nan_to_num(upper)
+    
+    return lower, upper
+    
+def plot_ethograms(movie_dataset, nmoviestoplot=20):  
+
+    # count viable trajectories
+    nmovies = 0
+    for key, npmovie in movie_dataset.items():  
+        if npmovie.trajec is not None:
+            if npmovie.sync2d3d is not None:
+                if npmovie.behavior == 'landing':
+                    if len(npmovie.sync2d3d.frames2d) > 20:
+                        nmovies += 1
+
+    fig = plt.figure()
+    if nmoviestoplot < nmovies:
+        nmovies = nmoviestoplot
+    
+    ax0 = plt.subplot(nmovies, 1, 1)   
+    ax0.set_xlim([-.8,.8])
+    
+    n = 0
+    for key, npmovie in movie_dataset.items():  
+        if npmovie.trajec is not None:
+            if npmovie.sync2d3d is not None:
+                if npmovie.behavior == 'landing':
+                    if len(npmovie.sync2d3d.frames2d) > 20:
+                        n += 1
+                        lower, upper = get_angle_to_edges(npmovie)
+                        
+                        ax1 = plt.subplot(nmovies, 1, n, sharex=ax0)   
+                        
+                        threshold = npmovie.flycoord.dist_to_post<80
+                        print threshold
+                        
+                        tlanding = npmovie.trajec.epoch_time[npmovie.sync2d3d.frames3d[-1]]
+                        time = npmovie.trajec.epoch_time[npmovie.sync2d3d.frames3d] - tlanding
+                        
+                        
+                        ax1.fill_between(time, upper, lower)
+                        ax1.vlines(0, -2, 2, color='r')
+                        ax1.hlines(0, -1, 1, color='r')
+                        ax1.set_xticklabels([])
+                        ax1.set_yticklabels([])
+                        ax1.set_title(npmovie.id + npmovie.extras[0])
+                        if n >= nmoviestoplot:  
+                            break
+

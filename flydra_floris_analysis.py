@@ -618,13 +618,12 @@ class Trajectory:
         # search forward in time until we get below threshold, then check to make sure fly stays below threshold for three more frames
         
         # if it's a flyby, find nearest point to post?
-        if self.behavior is 'flyby':
-            
+        if self.behavior == 'flyby':
             self.frame_of_landing = np.argmin(self.dist_to_stim)
-
+            return self.frame_of_landing
 
         
-        if self.behavior is 'landing':
+        if self.behavior == 'landing':
                 
             frame_of_landing = 0
             counter = 0
@@ -636,6 +635,7 @@ class Trajectory:
                     if counter >= 3:
                         self.frame_of_landing = frame_of_landing
                         self.time_of_landing = self.fly_time[frame_of_landing]
+                        print 'frame of landing: ', frame_of_landing
                         return frame_of_landing
                     elif self.speed[i] < threshold:
                         counter = counter + 1
@@ -644,6 +644,7 @@ class Trajectory:
                         frame_of_landing = 0
                         
             self.frame_of_landing = -1
+            print 'frame of landing: ', frame_of_landing
             return -1
                 
                 

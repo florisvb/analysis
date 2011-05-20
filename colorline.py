@@ -12,22 +12,22 @@ class Colorline ():
         # "figure" should be a matplotlib figure
         self.hide_colorbar = hide_colorbar
         
-        # initialize figure and axes
-        if figure is None:
-            self.fig = plt.figure()
-        else:
-            self.fig = plt.figure(figure)
-        if ax0 is None:
-            self.ax0 = self.fig.add_axes(ax0_size)
-        else:
-            self.ax0 = self.fig.add_axes(ax0)
-        
+        if ax0 is not None:
+            self.fig = ax0.figure
+            self.ax0 = ax0
+        else:        
+            if figure is None:
+                self.fig = plt.figure()
+            else:
+                self.fig = plt.figure(figure)
+            if ax0 is None:
+                self.ax0 = self.fig.add_axes(ax0_size)
+            self.ax0.set_ylim(ylim)
+            self.ax0.set_xlim(xlim)
+            
         if self.hide_colorbar is False:
             self.ax1 = self.fig.add_axes([0.85,0.1,0.05,0.7])
 
-        
-        self.ax0.set_ylim(ylim)
-        self.ax0.set_xlim(xlim)
         
         
         # plot paramters
@@ -40,7 +40,7 @@ class Colorline ():
           
 
 
-    def colorline(self, x,y,z,linewidth=3, colormap = None, norm=None ):
+    def colorline(self, x,y,z,linewidth=1, colormap = None, norm=None, zorder=1, alpha=1 ):
         
         if colormap is None:
             cmap = self.cmap
@@ -49,6 +49,8 @@ class Colorline ():
         
         if norm is None:
             self.norm = plt.Normalize(z.min(), z.max())
+        else:
+            self.norm = plt.Normalize(norm[0], norm[1])
 
         if self.hide_colorbar is False:
             if self.cb is None:
@@ -67,7 +69,7 @@ class Colorline ():
         
         # Create the line collection object, setting the colormapping parameters.
         # Have to set the actual values used for colormapping separately.
-        lc = LineCollection(segments, cmap=cmap,norm=self.norm )
+        lc = LineCollection(segments, cmap=cmap,norm=self.norm, zorder=zorder, alpha=alpha )
         lc.set_array(z)
         lc.set_linewidth(linewidth)
         
