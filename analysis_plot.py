@@ -23,7 +23,7 @@ import matplotlib.colors as colors
 
 import sys
 sys.path.append('/home/floris/src/pymovie2')
-import sa1_movie_plots as smp
+#import sa1_movie_plots as smp
 import numpyimgproc as nim
 import scipy.ndimage as ndimage
 import matplotlib.mlab as mlab
@@ -480,7 +480,8 @@ def search_dist_to_post_r(dataset, trajectory, distance):
                 
 ######################  XY plot  ###########################
                 
-def xy_trajectories(dataset=None, trajectory_objects=None, behavior = ['all'], figure=None, firstfly=0, numfliestoplot=None, trajectory=None, rotate=False, flip=False, lim=(-.15, .15), zslice=(-.2,.2), colorcode='s', norm=None, show_saccades=False, print_obj_ids=False, dist_to_post=0.06, fontsize=8, saccade_threshold=0.3, post_types=['black', 'checkered', None], hide_colorbar=False, ax0_size=[0.1,0.1,0.7,0.7], trajec_alpha=1):
+def xy_trajectories(dataset=None, trajectory_objects=None, behavior = ['all'], figure=None, firstfly=0, numfliestoplot=None, trajectory=None, rotate=False, flip=False, lim=(-.15, .15), zslice=(-.2,.2), colorcode='s', norm=None, show_saccades=False, print_obj_ids=False, dist_to_post=0.06, fontsize=8, saccade_threshold=0.3, post_types=['black', 'checkered', None], hide_colorbar=False, ax0_size=[0.1,0.1,0.7,0.7], trajec_alpha=1, frames=None):
+
 
     if numfliestoplot is None:
         if trajectory is not None:
@@ -508,9 +509,11 @@ def xy_trajectories(dataset=None, trajectory_objects=None, behavior = ['all'], f
         if colorcode == 'z':
             norm = (zslice[0], zslice[1])
         if colorcode == 's':
-            norm = (0.02, .3)
+            norm = (0.02, .5)
         if colorcode == 'r':
             norm = (-.2, .2)
+        if colorcode == 'a':
+            norm = (-.01, .01)
 
     radius = dataset.stimulus.radius
     
@@ -573,16 +576,22 @@ def xy_trajectories(dataset=None, trajectory_objects=None, behavior = ['all'], f
         for k in trajectory:
             if dataset.trajecs[k].behavior in behavior:
                 trajec = dataset.trajecs[k]
+                if frames is None:
+                    frames = np.arange(0,len(trajec.speed),1).tolist()
+                elif frames == '8cm':
+                    frames = trajec.frames
                 if 'unclassified' not in behavior:
-                    index = search_dist_to_post_r(dataset, k, dist_to_post)
-                    x = dataset.trajecs[k].positions[index][0]
-                    y = dataset.trajecs[k].positions[index][1]
-                    theta = -1*np.arctan2(y,x)
+                    #index = search_dist_to_post_r(dataset, k, dist_to_post)
+                    #x = dataset.trajecs[k].positions[index][0]
+                    #y = dataset.trajecs[k].positions[index][1]
+                    #theta = -1*np.arctan2(y,x)
+                    theta = -1*np.mean(trajec.heading_smooth[frames])
                     R = np.array([  [np.cos(theta), -np.sin(theta)],
                                     [np.sin(theta), np.cos(theta)]])
                     #el = Ellipse((x, y), .002, .002, facecolor='blue', alpha=1)
                     #cl.ax0.add_artist(el)
                     
+                '''
                 if 'unclassified' not in behavior:
                     # rotate velocity, pick y component, check sign
                     velx = dataset.trajecs[k].velocities[:,0]  
@@ -593,7 +602,8 @@ def xy_trajectories(dataset=None, trajectory_objects=None, behavior = ['all'], f
                         velx_rot[i], vely_rot[i] = rotatexy(velx[i], vely[i], R)
                     Fx = np.sign(velx_rot[index])
                     Fy = np.sign(vely_rot[index])
-        
+                '''
+                
                 fr_land = -1
                 if dataset.trajecs[k].behavior == 'landing':
                     fr_land = dataset.trajecs[k].frame_of_landing
@@ -629,11 +639,11 @@ def xy_trajectories(dataset=None, trajectory_objects=None, behavior = ['all'], f
                         el_saccade = Ellipse((sac_x, sac_y), .001, .001, facecolor='red', edgecolor='red', alpha=1)
                         cl.ax0.add_artist(el_saccade)
                     
-                x = dataset.trajecs[k].positions[0:fr_land,0]-dataset.stimulus.center[0]
-                y = dataset.trajecs[k].positions[0:fr_land,1]-dataset.stimulus.center[1]
-                s = dataset.trajecs[k].speed[0:fr_land]
-                z = dataset.trajecs[k].positions[0:fr_land,2]-dataset.stimulus.center[2]
-                
+                x = dataset.trajecs[k].positions[frames,0]-dataset.stimulus.center[0]
+                y = dataset.trajecs[k].positions[frames,1]-dataset.stimulus.center[1]
+                s = dataset.trajecs[k].speed[frames]
+                z = dataset.trajecs[k].positions[frames,2]-dataset.stimulus.center[2]
+
                 if rotate:
                     for i in range(len(x)):
                         x[i], y[i] = rotatexy(x[i],y[i],R)
@@ -654,7 +664,11 @@ def xy_trajectories(dataset=None, trajectory_objects=None, behavior = ['all'], f
                     if colorcode == 's':
                         c = s
                     if colorcode == 'r':
-                        c = dataset.trajecs[k].polar_vel[0:fr_land, 0]
+                        c = dataset.trajecs[k].polar_vel[frames, 0]
+                    if colorcode == 'a':
+                        c = dataset.trajecs[k].smooth_accel[frames]
+                        
+                    print x.shape, y.shape, c.shape
                     cl.colorline(x, y, c,linewidth=1, norm=norm, alpha=trajec_alpha)
                     
                 if print_obj_ids is True:
@@ -707,6 +721,8 @@ def xy_trajectories(dataset=None, trajectory_objects=None, behavior = ['all'], f
                 clabel = 'speed, meters/sec'
             if colorcode == 'r':
                 clabel = 'radial vel, m/s'
+            if colorcode == 'a':
+                clabel = 'acceleration m/s^2'
             cl.ax1.set_ylabel(clabel)
     cl.ax0.set_aspect('equal')
     pyplot.show()
