@@ -24,6 +24,7 @@ import flydra_floris_analysis as ffa
 REQUIRED_LENGTH = 30
 REQUIRED_DIST = 0.08
 
+
 def dist_pt_to_line(p, p0, p1):
 
     dy = p1[1]-p0[1]
@@ -97,15 +98,14 @@ def make_behavior_dataset(dataset, filename='landing_dataset_8cm', behavior='lan
             
             calc_frame_of_landing (trajec, threshold = 0.0005)
             normalize_dist_to_stim_r(trajec)
-            trajec.frames = np.arange(get_frame_at_distance(trajec, REQUIRED_DIST), trajec.frame_of_landing).tolist()
             
-            if trajec.frame_of_landing > REQUIRED_LENGTH:
-                if trajec.dist_to_stim_r_normed[0] >= REQUIRED_DIST:
-                    if np.max(trajec.positions[trajec.frames,2]) < 0:
-                    
-                        classify(trajec, dfar=REQUIRED_DIST, dnear=0.005)
+            if trajec.dist_to_stim_r_normed[0] >= REQUIRED_DIST:
+                trajec.frames = np.arange(get_frame_at_distance(trajec, REQUIRED_DIST), trajec.frame_of_landing).tolist()
+                if trajec.frame_of_landing > REQUIRED_LENGTH:
+                    if np.max(trajec.positions[trajec.frames,2]) < 0: # altitude check: needs to be below post top
+                        #classify(trajec, dfar=REQUIRED_DIST, dnear=0.005)
                         new_dataset.trajecs.setdefault(k, trajec)
-                    
+                        
     save(new_dataset, filename)
 
     return new_dataset
@@ -128,12 +128,18 @@ def prep_dataset(dataset, distance=REQUIRED_DIST, do_classification=True):
     
     for k,trajec in dataset.trajecs.items():
         prep_trajectory(trajec, distance)
+    r, f, rrev_fit, intercept_fit = get_rrev_vs_speed(dataset, keys=dataset.trajecs.keys(), time_offset=0, plot=False)
+    
+    for k, trajec in dataset.trajecs.items():
+        intercept = intercept_fit[1]*trajec.speed + intercept_fit[0]
+        trajec.rrev = (trajec.expansion-intercept) / trajec.angle_subtended_by_post
+    
         
 def prep_trajectory(trajec, distance=REQUIRED_DIST, do_classification=True):
     calc_frame_of_landing(trajec)
     calc_heading(trajec)
     #calc_heading_cumsum(trajec)
-    trajec.frames = np.arange(get_frame_at_distance(trajec, distance), trajec.frame_of_landing).tolist()
+    trajec.frames = np.arange(get_frame_at_distance(trajec, distance), trajec.frame_of_landing+1).tolist()
     calc_time_to_impact(trajec)
     calc_saccades(trajec)
     calc_wv_ratio_cumsum(trajec)
@@ -143,8 +149,8 @@ def prep_trajectory(trajec, distance=REQUIRED_DIST, do_classification=True):
         classify(trajec, dfar=distance, dnear=0.005)
     sa1.calc_post_dynamics_for_flydra_trajectory(trajec)
     trajec.expansion = sa1.diffa(trajec.angle_subtended_by_post)*trajec.fps
-    trajec.rrev = sa1.diffa(trajec.angle_subtended_by_post)*trajec.fps / trajec.angle_subtended_by_post
     calc_deceleration_initiation(trajec, plot=False)
+    
 ###
 def normalize_dist_to_stim_r(trajec):
     if trajec.behavior == 'landing':
@@ -168,20 +174,26 @@ def get_speed_at_distance(trajec, distance, singleframe=False):
 def classify(trajec, dfar=REQUIRED_DIST, dnear=0.005):
     speed_hi_threshold = 0.18
     speed_lo_threshold = 0.18
-
+    
+    calc_deceleration_initiation(trajec, plot=False)
+    
+    if trajec.time_at_deceleration is not None:
+        if trajec.speed_at_deceleration < 0.19:
+            trajec.classification = 'slow'
+        elif trajec.speed_at_deceleration < 0.5:
+            trajec.classification = 'mid'
+        else:
+            trajec.classification = 'fast'
+    else:
+        trajec.classification = 'unkown'
+    
+    '''
     if trajec.behavior == 'landing' and trajec.dist_to_stim_r_normed[0] >= REQUIRED_DIST:
         trajec.speed_far = get_speed_at_distance(trajec, dfar, singleframe=True)
         trajec.speed_near = get_speed_at_distance(trajec, dnear, singleframe=True)
         
         rapid_change = ['16_11941', '21_39869', '24_68045', '10_81287', '10_81263', '6_658']
         meander = ['19_19700', '2_29065', '10_77258', '24_68566', '19_20720', '24_68072', '8_13120', '1_25985', '1_25719', '8_10323', '7_5444', '21_27634', '21_40053', '10_77509', '19_19986']
-        
-        '''
-        if trajec.key in rapid_change:
-            trajec.classification = 'rapid_change'
-        elif trajec.key in meander:
-            trajec.classification = 'meander'
-        '''
         
         change_in_heading = np.linalg.norm( trajec.heading_smooth[trajec.frames[0]] - trajec.heading_smooth[trajec.frame_of_landing] )
         crash_test = np.min(trajec.smooth_accel[trajec.frames[0:-5]])
@@ -205,7 +217,7 @@ def classify(trajec, dfar=REQUIRED_DIST, dnear=0.005):
     else:
         
         trajec.classification = 'flyby'
-            
+    '''
             
             
 def calc_frame_of_landing (trajec, threshold = 0.0005):
@@ -611,19 +623,19 @@ def plot_accel_color(dataset, keys):
     
         try:
             a_past_2std_pts = np.where( (a < mean-2*std)*(sa1.diffa(a)<0) )[0].tolist()
-            pt_of_deceleration = a_past_2std_pts[np.where(nim.find_blobs(sa1.diffa(a_past_2std_pts)==1)[-1]==1)[0][0]]
+            pt_at_deceleration = a_past_2std_pts[np.where(nim.find_blobs(sa1.diffa(a_past_2std_pts)==1)[-1]==1)[0][0]]
             
             # interpolate to get a better time for the actual 2*std crossover
         
-            time_to_impact_at_deceleration = np.interp(mean-2*std, np.abs(a[pt_of_deceleration-1:pt_of_deceleration+1]), t[pt_of_deceleration-1:pt_of_deceleration+1])
-            speed_at_deceleration = np.interp(mean-2*std, np.abs(a[pt_of_deceleration-1:pt_of_deceleration+1]), s[pt_of_deceleration-1:pt_of_deceleration+1])
-            dist_at_deceleration = np.interp(mean-2*std, np.abs(a[pt_of_deceleration-1:pt_of_deceleration+1]), x[pt_of_deceleration-1:pt_of_deceleration+1])
-            expansion_at_deceleration = np.interp(mean-2*std, np.abs(a[pt_of_deceleration-1:pt_of_deceleration+1]), exp[pt_of_deceleration-1:pt_of_deceleration+1])
-            angle_at_deceleration = np.interp(mean-2*std, np.abs(a[pt_of_deceleration-1:pt_of_deceleration+1]), trajec.angle_subtended_by_post[pt_of_deceleration-1:pt_of_deceleration+1])
+            time_to_impact_at_deceleration = np.interp(mean-2*std, np.abs(a[pt_at_deceleration-1:pt_at_deceleration+1]), t[pt_at_deceleration-1:pt_at_deceleration+1])
+            speed_at_deceleration = np.interp(mean-2*std, np.abs(a[pt_at_deceleration-1:pt_at_deceleration+1]), s[pt_at_deceleration-1:pt_at_deceleration+1])
+            dist_at_deceleration = np.interp(mean-2*std, np.abs(a[pt_at_deceleration-1:pt_at_deceleration+1]), x[pt_at_deceleration-1:pt_at_deceleration+1])
+            expansion_at_deceleration = np.interp(mean-2*std, np.abs(a[pt_at_deceleration-1:pt_at_deceleration+1]), exp[pt_at_deceleration-1:pt_at_deceleration+1])
+            angle_at_deceleration = np.interp(mean-2*std, np.abs(a[pt_at_deceleration-1:pt_at_deceleration+1]), trajec.angle_subtended_by_post[pt_at_deceleration-1:pt_at_deceleration+1])
             
             
-            trajec.epoch_time_at_deceleration = np.interp(mean-2*std, np.abs(a[pt_of_deceleration-1:pt_of_deceleration+1]), trajec.epoch_time[pt_of_deceleration-1:pt_of_deceleration+1])
-            trajec.frame_at_deceleration = pt_of_deceleration
+            trajec.epoch_time_at_deceleration = np.interp(mean-2*std, np.abs(a[pt_at_deceleration-1:pt_at_deceleration+1]), trajec.epoch_time[pt_at_deceleration-1:pt_at_deceleration+1])
+            trajec.frame_at_deceleration = pt_at_deceleration
             
             trajec.rrev = sa1.diffa(trajec.angle_subtended_by_post)*trajec.fps / trajec.angle_subtended_by_post
             trajec.time_aligned_to_deccel = trajec.fly_time[0:trajec.frame_of_landing]-trajec.fly_time[trajec.frame_at_deceleration]
@@ -641,11 +653,11 @@ def plot_accel_color(dataset, keys):
             
             #other pts:
             '''
-            normalizing_factor = trajec.angle_subtended_by_post[pt_of_deceleration]
-            ax.plot(trajec.speed[0:pt_of_deceleration+1], sa1.diffa(trajec.angle_subtended_by_post)[0:pt_of_deceleration+1] * trajec.fps / trajec.angle_subtended_by_post[0:pt_of_deceleration+1], color='blue')
+            normalizing_factor = trajec.angle_subtended_by_post[pt_at_deceleration]
+            ax.plot(trajec.speed[0:pt_at_deceleration+1], sa1.diffa(trajec.angle_subtended_by_post)[0:pt_at_deceleration+1] * trajec.fps / trajec.angle_subtended_by_post[0:pt_at_deceleration+1], color='blue')
             '''
             #normalizing_factor = 50*(speed_at_deceleration-0.7)**2+1
-            #normalizing_factor = trajec.angle_subtended_by_post[pt_of_deceleration]
+            #normalizing_factor = trajec.angle_subtended_by_post[pt_at_deceleration]
             fp = 0
             x = angle_at_deceleration #trajec.angle_subtended_by_post[trajec.frame_at_deceleration-fp]
             y = expansion_at_deceleration #trajec.rrev[trajec.frame_at_deceleration-fp]
@@ -694,30 +706,45 @@ def calc_deceleration_initiation(trajec, plot=False):
     # find where acceleration starts to go down outside of normal flight
     a_past_2std_pts = np.where( (a < mean-2*std)*(sa1.diffa(a)<0) )[0].tolist()
     try:
-        pt_of_deceleration = a_past_2std_pts[np.where(nim.find_blobs(sa1.diffa(a_past_2std_pts)==1)[-1]==1)[0][0]]
+    #if 1:
+        pt_at_deceleration = a_past_2std_pts[np.where(nim.find_blobs(sa1.diffa(a_past_2std_pts)==1)[-1]==1)[0][0]]
         
         # search backwards in frames/time to find first frame of deceleration
-        f = pt_of_deceleration
+        f = pt_at_deceleration
         accel = a[f]
         while accel < 0:
             f -= 1
             accel = a[f]
         
-        #f = pt_of_deceleration
-        trajec.frame_of_deceleration = f-1
+        #f = pt_at_deceleration
+        trajec.frame_at_deceleration = f-1
+        frames = np.arange(trajec.frame_at_deceleration-1,trajec.frame_at_deceleration+1).tolist()
         # interpolate to get best estimate of time
-        trajec.time_of_deceleration = np.interp(0, a[f-1:f+1], trajec.epoch_time[f-1:f+1]) 
+        trajec.time_at_deceleration = np.interp(0, a[frames], trajec.epoch_time[frames]) 
+        trajec.angle_at_deceleration = np.interp(trajec.time_at_deceleration, trajec.epoch_time[frames], trajec.angle_subtended_by_post[frames])
+        trajec.expansion_at_deceleration = np.interp(trajec.time_at_deceleration, trajec.epoch_time[frames], trajec.expansion[frames])
+        trajec.speed_at_deceleration = np.interp(trajec.time_at_deceleration, trajec.epoch_time[frames], trajec.speed[frames])
+        trajec.dist_at_deceleration = np.interp(trajec.time_at_deceleration, trajec.epoch_time[frames], trajec.dist_to_stim_r[frames])
+        
+        
         if plot:
             plt.plot(trajec.epoch_time[0:trajec.frame_of_landing], a)
             plt.plot(trajec.epoch_time[0:trajec.frame_of_landing], trajec.speed[0:trajec.frame_of_landing])
-            plt.plot(trajec.time_of_deceleration, 0, 'o', color='red')
-            plt.plot(trajec.epoch_time[pt_of_deceleration], a[pt_of_deceleration], 'o', color='blue')
+            plt.plot(trajec.time_at_deceleration, 0, 'o', color='red')
+            plt.plot(trajec.epoch_time[pt_at_deceleration], a[pt_at_deceleration], 'o', color='blue')
             plt.show()
-        #print trajec.key, ' processed', trajec.frame_of_deceleration
+        #print trajec.key, ' processed', trajec.frame_at_deceleration
+    #if 0:
     except:
-        pt_of_deceleration = None
-        trajec.frame_of_deceleration = None
-        trajec.time_of_deceleration = None
+        pt_at_deceleration = None
+        trajec.frame_at_deceleration = None
+        trajec.time_at_deceleration = None
+        trajec.angle_at_deceleration = None
+        trajec.expansion_at_deceleration = None
+        trajec.speed_at_deceleration = None
+        trajec.dist_at_deceleration = None
+        
+        
         #print trajec.key, ' unprocessed'
         
 def plot_deceleration_vs_time_to_impact(dataset, keys, show_legs=True):
@@ -726,16 +753,19 @@ def plot_deceleration_vs_time_to_impact(dataset, keys, show_legs=True):
     norm=[0,0.6]
     trajec_alpha = 0.9
     
-    cl = colorline.Colorline(xlim=[0,0.5], ylim =[-10,10], norm=norm, colormap = 'jet', figure=figure, hide_colorbar=False, ax0_size=ax0_size)
+    cl = colorline.Colorline(xlim=[-.4,0.1], ylim =[-3,3], norm=norm, colormap = 'jet', figure=figure, hide_colorbar=False, ax0_size=ax0_size)
     
     for key in keys:
         trajec = dataset.trajecs[key]
-        calc_deceleration_initiation(trajec)
-        if trajec.time_of_deceleration is not None:
-            a = trajec.accel_1d[0:trajec.frame_of_landing]
-            t = trajec.epoch_time[0:trajec.frame_of_landing] - trajec.time_of_deceleration
-            s = trajec.speed[0:trajec.frame_of_landing]
-            cl.colorline(t, a, s,linewidth=1, norm=norm, alpha=trajec_alpha)
+        #calc_deceleration_initiation(trajec)
+        if trajec.time_at_deceleration is not None:
+             
+            a = trajec.accel_1d
+            t = trajec.epoch_time - trajec.time_at_deceleration
+            s = trajec.speed
+            cl.colorline(t[trajec.frames], a[trajec.frames], s[trajec.frames],linewidth=1, norm=norm, alpha=trajec_alpha)
+            
+            cl.ax0.plot(t[trajec.frame_of_landing], a[trajec.frame_of_landing], '.', color='red')
             
             if show_legs:
                 acc_at_legext = np.interp(trajec.legextension_time, trajec.epoch_time, trajec.accel_1d)
@@ -743,6 +773,7 @@ def plot_deceleration_vs_time_to_impact(dataset, keys, show_legs=True):
                 cl.ax0.plot( timpact_at_legext, acc_at_legext, 'o', color='red')
     cl.ax0.set_xlabel('time, sec')
     cl.ax0.set_ylabel('acceleration, m/s^2')
+    cl.ax1.set_ylabel('speed, m/s')
             
 def plot_exp_vs_angle(dataset, keys=None, show_legs=False, time_offset=0):
     # point of deceleration initiation figure
@@ -757,17 +788,17 @@ def plot_exp_vs_angle(dataset, keys=None, show_legs=False, time_offset=0):
     for key in keys:
         trajec = dataset.trajecs[key]
         calc_deceleration_initiation(trajec)
-        if trajec.frame_of_deceleration is not None:
+        if trajec.frame_at_deceleration is not None:
             frame_offset = int(time_offset / trajec.fps)
 
-            c = cmap(colormap_norm(trajec.speed[trajec.frame_of_deceleration+frame_offset]))
+            c = cmap(colormap_norm(trajec.speed[trajec.frame_at_deceleration+frame_offset]))
             
-            frames = np.arange(trajec.frame_of_deceleration-1+frame_offset,trajec.frame_of_deceleration+1+frame_offset).tolist()
-            angle_at_deceleration = np.interp(trajec.time_of_deceleration+time_offset, trajec.epoch_time[frames], trajec.angle_subtended_by_post[frames])
-            expansion_at_deceleration = np.interp(trajec.time_of_deceleration+time_offset, trajec.epoch_time[frames], trajec.expansion[frames])
+            frames = np.arange(trajec.frame_at_deceleration-1+frame_offset,trajec.frame_at_deceleration+1+frame_offset).tolist()
+            angle_at_deceleration = np.interp(trajec.time_at_deceleration+time_offset, trajec.epoch_time[frames], trajec.angle_subtended_by_post[frames])
+            expansion_at_deceleration = np.interp(trajec.time_at_deceleration+time_offset, trajec.epoch_time[frames], trajec.expansion[frames])
             
-            speed_at_deceleration = np.interp(trajec.time_of_deceleration+time_offset, trajec.epoch_time[frames], trajec.speed[frames])
-            dist_at_deceleration = np.interp(trajec.time_of_deceleration+time_offset, trajec.epoch_time[frames], trajec.dist_to_stim_r[frames])
+            speed_at_deceleration = np.interp(trajec.time_at_deceleration+time_offset, trajec.epoch_time[frames], trajec.speed[frames])
+            dist_at_deceleration = np.interp(trajec.time_at_deceleration+time_offset, trajec.epoch_time[frames], trajec.dist_to_stim_r[frames])
             
             ax.plot( angle_at_deceleration, expansion_at_deceleration, 'o', color=c)
             #ax.plot( dist_at_deceleration, speed_at_deceleration, 'o', color=c)
@@ -813,7 +844,7 @@ def plot_exp_vs_angle_for_saccades(dataset, keys=None, show_legs=False, time_off
     for key in keys:
         trajec = dataset.trajecs[key]
         calc_deceleration_initiation(trajec)
-        if trajec.frame_of_deceleration is not None:
+        if trajec.frame_at_deceleration is not None:
             frame_offset = int(time_offset / trajec.fps)
             frame_of_interest = trajec.saccades[0] 
             time_of_interest = trajec.epoch_time[frame_of_interest] # use interpolated values for better plots
@@ -859,15 +890,15 @@ def get_rrev_and_speed(dataset, keys, time_offset=0, plot=False):
     angle = []
     for key in keys:
         trajec = dataset.trajecs[key]
-        if trajec.frame_of_deceleration is not None:
+        if trajec.frame_at_deceleration is not None:
             frame_offset = int(time_offset / trajec.fps)
-            frames = np.arange(trajec.frame_of_deceleration-1+frame_offset,trajec.frame_of_deceleration+1+frame_offset).tolist()
-            angle_at_deceleration = np.interp(trajec.time_of_deceleration+time_offset, trajec.epoch_time[frames], trajec.angle_subtended_by_post[frames])
-            expansion_at_deceleration = np.interp(trajec.time_of_deceleration+time_offset, trajec.epoch_time[frames], trajec.expansion[frames])
-            speed_at_deceleration = np.interp(trajec.time_of_deceleration+time_offset, trajec.epoch_time[frames], trajec.speed[frames])
+            frames = np.arange(trajec.frame_at_deceleration-1+frame_offset,trajec.frame_at_deceleration+1+frame_offset).tolist()
+            angle_at_deceleration = np.interp(trajec.time_at_deceleration+time_offset, trajec.epoch_time[frames], trajec.angle_subtended_by_post[frames])
+            expansion_at_deceleration = np.interp(trajec.time_at_deceleration+time_offset, trajec.epoch_time[frames], trajec.expansion[frames])
+            speed_at_deceleration = np.interp(trajec.time_at_deceleration+time_offset, trajec.epoch_time[frames], trajec.speed[frames])
             rrev_at_deceleration = expansion_at_deceleration / angle_at_deceleration
 
-            distance_at_deceleration = np.interp(trajec.time_of_deceleration+time_offset, trajec.epoch_time[frames], trajec.dist_to_stim_r_normed[frames])
+            distance_at_deceleration = np.interp(trajec.time_at_deceleration+time_offset, trajec.epoch_time[frames], trajec.dist_to_stim_r_normed[frames])
             v_over_d_at_deceleration = speed_at_deceleration / distance_at_deceleration
             
             expansion.append(expansion_at_deceleration)
@@ -912,93 +943,123 @@ def plot_exp_vs_angle_for_speed_range(dataset, keys, velrange=[0.4,0.8], time_of
     
 def get_rrev_vs_speed(dataset, keys, time_offset=0, plot=False):
 
+    min_num_data_pts = 1
+    expansion, rrev, speed, angle = get_rrev_and_speed(dataset, keys, time_offset=0)
+    
     if plot:
         fig = plt.figure()
         ax = fig.add_subplot(111)
+        fig2 = plt.figure()
+        ax2 = fig2.add_subplot(111)
+        fig3 = plt.figure()
+        ax3 = fig3.add_subplot(111)
+        
+        colormap_norm = matplotlib.colors.Normalize(0, .6, clip=True)
+        cmap = plt.get_cmap('jet')
     
-    min_number_data_pts = 12
-    expansion, rrev, speed, angle = get_rrev_and_speed(dataset, keys, time_offset=0)
-    vmax_bin = 0.5
+        for i in range(len(angle)):
+            c = cmap(colormap_norm(speed[i]))
+            ax2.plot( angle[i]*180./np.pi, expansion[i]*180./np.pi, 'o', color=c)
+        exp_vs_angle_line_interval = 20
     
     fitted_rrev_array = []
     fitted_speed_array = []
     fitted_residuals = []
+    fitted_intercept_array = []
     
-    v = 0
-    while v < vmax_bin:
-        vmin = v
-        vmax = v
-        indices = []
-        while len(indices) < min_number_data_pts and vmax < vmax_bin:
-            vmax += 0.01
-            
-            if vmax >= vmax_bin:
-                vmax = np.max(speed)
-            
-            try:
-                indices = np.where( (speed>vmin)*(speed<vmax) )[0].tolist()
-            except:
-                indices = []
-        if len(indices) > 2:
-            result = np.polyfit(angle[indices], expansion[indices], 1, rcond=None, full=True)
-            fit = result[0]
-            residuals = result[1][0]
-            r = np.sqrt(residuals / len(indices))
-            rrev_at_speed = fit[0]
-            
-            fitted_rrev_array.append(rrev_at_speed)
-            fitted_speed_array.append(np.mean(speed[indices]))
-            fitted_residuals.append(r)
-            
-            if plot:
-                ax.vlines(np.mean(speed[indices]), rrev_at_speed-r, rrev_at_speed+r)
-                ax.plot(np.mean(speed[indices]), rrev_at_speed, 'o', color='black')
-                            
-        speed_sorted = np.argsort(speed[indices])
-        difference_between_two_slowest_speeds_in_region = speed[indices][speed_sorted[1]] - speed[indices][speed_sorted[0]]
-        print difference_between_two_slowest_speeds_in_region
-        v += difference_between_two_slowest_speeds_in_region
+    # first fit all data to get intercept:
+    result = np.polyfit(angle, expansion, 1, rcond=None, full=True)
+    mean_fit = result[0]
+    intercept = mean_fit[1]
+    angle_intercept = -1*intercept / mean_fit[0]
+    print 'angle intercept: ', angle_intercept
+    dataset.angle_intercept_for_rrev = angle_intercept
     
-    if plot:
-        ax.set_xlabel('speed, m/s')
-        ax.set_ylabel('rrev, 1/s')
-        plt.show()
-    
-    return np.array(fitted_rrev_array), np.array(fitted_speed_array), np.array(fitted_residuals)
-    
-def fit_rrev_vs_speed_curve(dataset, keys, plot=False):
+    speed_order = np.argsort(speed)
+    for i in range(0, len(speed_order)-min_num_data_pts):
+        indices = speed_order[i:i+min_num_data_pts]
+        mean_speed = np.mean(speed[indices])
+        #result = np.polyfit(angle[indices], expansion[indices], 1, rcond=None, full=True)
+        #fit = result[0]
+        fit = mean_fit[0]
+        intercept = mean_fit[1]
+        change = 1
+        while change > 0.001: # iterate to find x intercept and slope simultaneously
+            old_intercept = intercept
+            fit = [np.mean( (expansion[indices]-intercept) / angle[indices]), intercept]
+            intercept = -1*angle_intercept*fit[0]
+            change = np.abs(old_intercept-intercept)
+        fitted_intercept_array.append(intercept)
+        if plot:
+            ax3.plot(mean_speed, intercept, 'o', color='black')
         
-    fitted_rrev_array, fitted_speed_array, fitted_residuals = get_rrev_vs_speed(dataset, keys, time_offset=0, plot=False)
-    
-    indices = np.where( (fitted_speed_array<0.49)*(fitted_speed_array>0.19) )[0].tolist()
-    
-    result = np.polyfit(fitted_speed_array[indices], fitted_rrev_array[indices], 1, rcond=None, full=True)
-    coeffs = result[0]
-    
-    if plot:
-        fig = plt.figure()
-        ax = fig.add_subplot(111)
-    for i in range(len(fitted_speed_array)):
-        r = fitted_residuals[i]
+        #residuals = result[1][0]
+        #r = np.sqrt(residuals / len(indices))
+        rrev_at_speed = fit[0]
         
-        if i in indices:
-            c = 'black'
-        else:
-            c = 'gray'
+        fitted_rrev_array.append(rrev_at_speed)
+        fitted_speed_array.append(np.mean(speed[indices]))
+        #fitted_residuals.append(r)
         
         if plot:
-            ax.vlines(np.mean(fitted_speed_array[i]), fitted_rrev_array[i]-r, fitted_rrev_array[i]+r, color=c)
-            ax.plot(np.mean(fitted_speed_array[i]), fitted_rrev_array[i], 'o', color=c)
-            
-            x = np.linspace(np.min(fitted_speed_array), np.max(fitted_speed_array), 300)
-            y = coeffs[0]*x**1 + coeffs[1]
-            ax.plot(x,y, color='blue')
-            
-            ax.set_title('RREV vs. speed')
-            ax.set_xlabel('speed, m/s')
-            ax.set_ylabel('RREV, 1/s')
+            #ax.vlines(np.mean(speed[indices]), rrev_at_speed-r, rrev_at_speed+r)
+            ax.plot(np.mean(speed[indices])*np.ones_like(expansion[indices]), (expansion[indices]-intercept) / angle[indices], '.', color='gray')
+            #ax3.plot(np.mean(speed[indices]), fit[1], 'o', color='black')
+            ax.plot(np.mean(speed[indices]), rrev_at_speed, 'o', color='black')
+            #ax3.plot(np.mean(speed[indices]), (-1*intercept / rrev_at_speed)*180./np.pi, 'o')
+#        speed_sorted = np.argsort(speed[indices])
+    
+    fitted_rrev_array = np.array(fitted_rrev_array)
+    fitted_speed_array = np.array(fitted_speed_array)
+    fitted_intercept_array = np.array(fitted_intercept_array)
+    
+    # fit rrev vs speed curve    
+    indices = np.where( (fitted_speed_array > 0.2)*(fitted_speed_array < 0.6) )[0].tolist()
+    fit = np.polyfit(fitted_speed_array[indices], fitted_rrev_array[indices], 1)
+    intercept_fit = np.polyfit(fitted_speed_array[indices], fitted_intercept_array[indices], 1)
+    
         
-    return coeffs
+    if plot:
+    
+        x = np.linspace(0, np.max(fitted_speed_array), 100)
+        y = fit[0]*x + fit[1]
+        ax.plot(x,y,color='blue')
+    
+        ax.set_title('RREV vs speed fit')
+        ax.set_xlabel('speed, m/s')
+        ax.set_ylabel('rrev, 1/s')
+
+        ax2.set_xlabel('retinal size, deg')
+        ax2.set_ylabel('retinal expansion velocity, deg/s')
+        ax2.set_title('expansion vs angle, all flies, with fitted relationship for various speeds')
+        speeds_for_plotting = np.linspace(0,np.max(speed),5)   
+        for s in speeds_for_plotting:
+            a = np.linspace(0, np.max(angle), 10)
+            intercept = s*intercept_fit[0] + intercept_fit[1]
+            rrev_at_speed = s*fit[0] + fit[1]
+            exp = rrev_at_speed*a + intercept
+            c = cmap(colormap_norm(s))
+            print exp, a
+            ax2.plot(a*180./np.pi,exp*180./np.pi,color=c, alpha=0.5)
+            
+        if int(i/exp_vs_angle_line_interval) == i/float(exp_vs_angle_line_interval):
+                x = np.linspace(0, np.max(angle), 50)
+                y = fit[0]*x + fit[1]
+                c = cmap(colormap_norm(np.mean(speed[indices])))
+                ax2.plot(x*180./np.pi,y*180./np.pi,color=c)
+                
+                
+    
+        ax3.set_title('RREV intercept vs speed')
+        ax3.set_xlabel('speed, m/s')
+        ax3.set_ylabel('expansion intercept, deg/s')
+        y = intercept_fit[0]*x+intercept_fit[1]
+        plt.plot(x,y,color='blue')
+        
+        plt.show()
+        
+    return np.array(fitted_rrev_array), np.array(fitted_speed_array), fit, intercept_fit
+    
     
     
 
@@ -1013,9 +1074,9 @@ def calc_coeff_of_var_rrev(dataset, keys, variable='deceleration'):
         rrev_list = []
         for key in keys:
             trajec = dataset.trajecs[key] 
-            if trajec.frame_of_deceleration is not None:
+            if trajec.frame_at_deceleration is not None:
                 if variable == 'deceleration':
-                    time_at_poi = trajec.time_of_deceleration
+                    time_at_poi = trajec.time_at_deceleration
                 elif variable == 'saccade':
                     try:
                         time_at_poi = trajec.epoch_time[trajec.saccades[0]]
@@ -1123,27 +1184,27 @@ def plot_simulated_rrevs(dataset, keys):
     cmap = plt.get_cmap('jet')
     arrow = dict(arrowstyle="->")
     
-    min_angle_to_see_post = 20*np.pi/180.
-    rrev_threshold = 6.5
+    min_angle_to_see_post = dataset.angle_intercept_for_rrev
+    rrev_threshold = 4
     
     angle_subtended_norm = (5, 40)
     cl = colorline.Colorline(xlim=[0,1], ylim =[0,50], norm=angle_subtended_norm, colormap = 'jet', figure=figure, hide_colorbar=True, ax0=ax)   
     
-    coeffs = fit_rrev_vs_speed_curve(dataset, keys, plot=False)
+    fitted_rrev_array, fitted_speed_array, coeffs, intercept_fit = get_rrev_vs_speed(dataset, keys, time_offset=0, plot=False)
     
     ## little hack test
     #rrev_for_speed_interp = [10.5, 12, 11.12, 13.6, 14.2]
     #speed = [.28, .32, .38, .41, .46]
-    speed = np.linspace(0.25, 0.5, 5)
+    speed = np.linspace(0.25, 0.6, 5)
     
-    delays = [.06]
+    delays = np.linspace(0.01, 0.2, 10)
     
     for delay in delays:
         rrev_for_speed_arr = []
         t_at_delay_arr = []
         for i, s in enumerate(speed):
             # center, slow
-            pos0 = [-.2, 0, 0]
+            pos0 = [-.3, 0, 0]
             vel0 = [s, 0, 0]
             time = 2
             trajec = simulate_rrev_for_fake_trajectory(trajec_example, pos0, vel0, time)
@@ -1155,6 +1216,7 @@ def plot_simulated_rrevs(dataset, keys):
             t = np.interp(rrev_for_speed, trajec.rrev[frames], trajec.epoch_time[frames])
             ax.plot(t, rrev_for_speed, 'o', color='black')
             
+            '''
             tdelayed = t-delay
             tminangle = np.interp(min_angle_to_see_post, trajec.angle_subtended_by_post[frames], trajec.epoch_time[frames])
             tthreshold = np.interp(rrev_threshold, trajec.rrev[frames], trajec.epoch_time[frames])
@@ -1164,6 +1226,11 @@ def plot_simulated_rrevs(dataset, keys):
             rrev_at_time = np.interp(ttrigger, trajec.epoch_time[frames], trajec.rrev[frames])
             rrev_for_speed_arr.append(rrev_at_time)
             t_at_delay_arr.append(ttrigger)
+            '''
+            tdelayed = t-delay
+            rrev_at_tdelay = np.interp(tdelayed, trajec.epoch_time[frames], trajec.rrev[frames])
+            c = cmap(colormap_norm(delay))
+            ax.plot(tdelayed, rrev_at_tdelay, 'o', color=c)
             
             if delay==delays[0]:
                 cl.colorline(trajec.epoch_time[frames], trajec.rrev[frames], trajec.angle_subtended_by_post[frames]*180./np.pi,linewidth=1, norm=angle_subtended_norm, alpha=1)
@@ -1174,15 +1241,16 @@ def plot_simulated_rrevs(dataset, keys):
                 #ax.plot(trajec.epoch_time[frames], trajec.rrev[frames], color='gray')
                 string = 'RREV at initiation of deceleration'
                 string_position = (t-0.05, rrev_for_speed+1)
+                '''
                 ax.annotate(string, (t, rrev_for_speed),
                     xytext=string_position,
                     arrowprops=arrow,
                     horizontalalignment='right', verticalalignment='top')
-                    
+                ''' 
         #c = cmap(colormap_norm(delay))
         c = 'red'
-        ax.plot(t_at_delay_arr, rrev_for_speed_arr, '--', color=c, linewidth=2)
-        ax.plot(t_at_delay_arr, rrev_for_speed_arr, 'o', color=c, markeredgecolor=c)
+        #ax.plot(t_at_delay_arr, rrev_for_speed_arr, '--', color=c, linewidth=2)
+        #ax.plot(t_at_delay_arr, rrev_for_speed_arr, 'o', color=c, markeredgecolor=c)
         
     # plot angle grid lines
     angles = [min_angle_to_see_post]
@@ -1201,9 +1269,9 @@ def plot_simulated_rrevs(dataset, keys):
             t_for_angles.append( np.interp(min_angle_to_see_post, trajec.angle_subtended_by_post[frames], trajec.epoch_time[frames]) )
     
         c = 'black' #cmap(angles_norm(min_angle_to_see_post*180/np.pi))
-        #ax.plot(t_for_angles, rrev_for_angles, '-', color=c)
-    ax.hlines(rrev_threshold, 0, 1, color='black')
-    ax.text(.1, rrev_threshold, 'RREV threshold')
+        ax.plot(t_for_angles, rrev_for_angles, '-', color=c)
+    #ax.hlines(rrev_threshold, 0, 1, color='black')
+    #ax.text(.1, rrev_threshold, 'RREV threshold')
     
     '''
     string = '20 deg threshold'
@@ -1227,6 +1295,8 @@ def plot_simulated_rrevs(dataset, keys):
     angle_norm = matplotlib.colors.Normalize(angle_subtended_norm[0], angle_subtended_norm[1], clip=True)
     cb = matplotlib.colorbar.ColorbarBase(cax, cmap=cmap, norm=colormap_norm, orientation='vertical', boundaries=None)
     cax.set_ylabel('angle subtended, deg')
+    
+    plt.show()
    
     
 def get_leg_extension_from_movie_dataset(dataset, movie_dataset, objid_dict):
