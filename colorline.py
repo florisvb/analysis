@@ -15,6 +15,9 @@ class Colorline ():
         if ax0 is not None:
             self.fig = ax0.figure
             self.ax0 = ax0
+            self.ax0.set_ylim(ylim)
+            self.ax0.set_xlim(xlim)
+            
         else:        
             if figure is None:
                 self.fig = plt.figure()
@@ -48,13 +51,13 @@ class Colorline ():
             cmap = plt.get_cmap(colormap)
         
         if norm is None:
-            self.norm = plt.Normalize(z.min(), z.max())
+            norm = self.norm
         else:
-            self.norm = plt.Normalize(norm[0], norm[1])
+            norm = plt.Normalize(norm[0], norm[1])
 
         if self.hide_colorbar is False:
             if self.cb is None:
-                self.cb = matplotlib.colorbar.ColorbarBase(self.ax1, cmap=cmap, norm=self.norm, orientation='vertical', boundaries=None)
+                self.cb = matplotlib.colorbar.ColorbarBase(self.ax1, cmap=cmap, norm=norm, orientation='vertical', boundaries=None)
             
             
         
@@ -69,7 +72,7 @@ class Colorline ():
         
         # Create the line collection object, setting the colormapping parameters.
         # Have to set the actual values used for colormapping separately.
-        lc = LineCollection(segments, cmap=cmap,norm=self.norm, zorder=zorder, alpha=alpha )
+        lc = LineCollection(segments, cmap=cmap,norm=norm, zorder=zorder, alpha=alpha )
         lc.set_array(z)
         lc.set_linewidth(linewidth)
         

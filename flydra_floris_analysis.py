@@ -221,16 +221,16 @@ class Dataset:
             self.trajecs[k].calc_polar()
             self.trajecs[k].calc_dist_to_stim()
             self.trajecs[k].calc_dist_to_stim_r()
-            self.trajecs[k].calc_dist_to_stim_z()
-            self.trajecs[k].calc_dist_to_post_top()
-            self.trajecs[k].calc_dist_to_post_edge()
+            #self.trajecs[k].calc_dist_to_stim_z()
+            #self.trajecs[k].calc_dist_to_post_top()
+            #self.trajecs[k].calc_dist_to_post_edge()
             self.trajecs[k].classify(method = 'velocity')
-            self.trajecs[k].calc_polar_vel()
-            self.trajecs[k].calc_polar_speed()
+            #self.trajecs[k].calc_polar_vel()
+            #self.trajecs[k].calc_polar_speed()
             #self.trajecs[k].calc_angle_to_post()
             
             
-            
+            '''
             if self.trajecs[k].behavior is 'landing':
                 #self.trajecs[k].calc_orientation_to_post_2d()
                 self.trajecs[k].find_frame_of_landing()
@@ -239,19 +239,20 @@ class Dataset:
                 self.trajecs[k].find_frame_of_takeoff()
             if self.trajecs[k].behavior is 'flyby':
                 self.trajecs[k].find_frame_of_landing()
+                '''
             if self.trajecs[k].behavior is not 'unclassified':
                 self.trajecs[k].calc_accel_1d()
                 
                 
             
-            
+            '''
             try:
                 self.trajecs[k].calc_parameterize_by_dist()
                 self.trajecs[k].calc_initial_state(0.06)
             except:
                 continue
             #self.trajecs[k].calc_covariance_pos()
-                
+                '''
                 
     def plot_raw_data (self, figure = None, behavior = None):
     

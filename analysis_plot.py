@@ -78,7 +78,7 @@ def save(dataset, filename):
     
     
     
-def load_raw(filename, dataset=None, center = np.array([0,0,0]), radius = .01913/2., fps = None, experiment = None, gender = None, post_height = 0.3, kalman_smoothing = True, objs = None, post_type=None):
+def load_raw(filename, dataset=None, center = np.array([0,0,0]), radius = .01913/2., fps = 100, experiment = None, gender = None, post_height = 0.3, kalman_smoothing = True, objs = None, post_type=None):
 
 
     ## experiment specific files ##
@@ -480,7 +480,7 @@ def search_dist_to_post_r(dataset, trajectory, distance):
                 
 ######################  XY plot  ###########################
                 
-def xy_trajectories(dataset=None, trajectory_objects=None, behavior = ['all'], figure=None, firstfly=0, numfliestoplot=None, trajectory=None, rotate=False, flip=False, lim=(-.15, .15), zslice=(-.2,.2), colorcode='s', norm=None, show_saccades=False, print_obj_ids=False, dist_to_post=0.06, fontsize=8, saccade_threshold=0.3, post_types=['black', 'checkered', None], hide_colorbar=False, ax0_size=[0.1,0.1,0.7,0.7], trajec_alpha=1, frames=None):
+def xy_trajectories(dataset=None, trajectory_objects=None, behavior = ['all'], figure=None, firstfly=0, numfliestoplot=None, trajectory=None, rotate=False, flip=False, lim=(-.15, .15), zslice=(-.2,.2), colorcode='s', norm=None, show_saccades=False, print_obj_ids=False, dist_to_post=0.06, fontsize=8, saccade_threshold=0.3, post_types=['black', 'checkered', None], hide_colorbar=False, ax0_size=[0.1,0.1,0.7,0.7], trajec_alpha=1, frames_to_plot=None):
 
 
     if numfliestoplot is None:
@@ -503,7 +503,7 @@ def xy_trajectories(dataset=None, trajectory_objects=None, behavior = ['all'], f
             trajectory.append(trajec.obj_id)
         dataset.stimulus = dataset.trajecs[dataset.trajecs.keys()[0]].stimulus
         numfliestoplot = len(trajectory)
-        print 'number of trajecs to plot: ', len(trajectory)
+        #print 'number of trajecs to plot: ', len(trajectory)
 
     if norm is None:
         if colorcode == 'z':
@@ -547,7 +547,7 @@ def xy_trajectories(dataset=None, trajectory_objects=None, behavior = ['all'], f
         trajectory = []
         fly = -1
         for k,v in dataset.trajecs.items():
-            print dataset.trajecs[k].post_type
+            #print dataset.trajecs[k].post_type
             if dataset.trajecs[k].behavior in behavior and dataset.trajecs[k].post_type in post_types:
 
                 if numfliestoplot is not None:
@@ -563,12 +563,12 @@ def xy_trajectories(dataset=None, trajectory_objects=None, behavior = ['all'], f
         trajectory = trajectory[firstfly:firstfly+numfliestoplot]
     
     
-    print len(trajectory)
+    #print len(trajectory)
     
     
                 
     # for arrow labels  
-    print numfliestoplot
+    #print numfliestoplot
     angle = np.pi*2 / float(numfliestoplot)
     current_angle = 0.  
     
@@ -576,21 +576,27 @@ def xy_trajectories(dataset=None, trajectory_objects=None, behavior = ['all'], f
         for k in trajectory:
             if dataset.trajecs[k].behavior in behavior:
                 trajec = dataset.trajecs[k]
-                if frames is None:
-                    frames = np.arange(0,len(trajec.speed),1).tolist()
-                elif frames == '8cm':
+                
+                
+                if frames_to_plot is None:
+                    frames = np.arange(0,len(trajec.speed)-2,1).tolist()
+                elif frames_to_plot == '8cm':
                     frames = trajec.frames
+                elif frames_to_plot == 'flyby_slice':
+                    frames = trajec.frames_of_flyby
+                
                 if 'unclassified' not in behavior:
                     #index = search_dist_to_post_r(dataset, k, dist_to_post)
                     #x = dataset.trajecs[k].positions[index][0]
                     #y = dataset.trajecs[k].positions[index][1]
                     #theta = -1*np.arctan2(y,x)
+                    '''
                     theta = -1*np.mean(trajec.heading_smooth[frames])
                     R = np.array([  [np.cos(theta), -np.sin(theta)],
                                     [np.sin(theta), np.cos(theta)]])
                     #el = Ellipse((x, y), .002, .002, facecolor='blue', alpha=1)
                     #cl.ax0.add_artist(el)
-                    
+                    '''
                 '''
                 if 'unclassified' not in behavior:
                     # rotate velocity, pick y component, check sign
@@ -630,7 +636,7 @@ def xy_trajectories(dataset=None, trajectory_objects=None, behavior = ['all'], f
                 if show_saccades is True:
                     #saccades = calc_saccades(dataset, k, threshold=saccade_threshold)
                     for saccade in trajec.saccades:
-                        print saccade
+                        #print saccade
                         if trajec.behavior == 'landing':
                             if saccade > trajec.frame_of_landing:
                                 continue
@@ -668,7 +674,7 @@ def xy_trajectories(dataset=None, trajectory_objects=None, behavior = ['all'], f
                     if colorcode == 'a':
                         c = dataset.trajecs[k].smooth_accel[frames]
                         
-                    print x.shape, y.shape, c.shape
+                    #print x.shape, y.shape, c.shape
                     cl.colorline(x, y, c,linewidth=1, norm=norm, alpha=trajec_alpha)
                     
                 if print_obj_ids is True:
@@ -694,7 +700,7 @@ def xy_trajectories(dataset=None, trajectory_objects=None, behavior = ['all'], f
                             if err_abs < 0.03:
                                 currentpos += np.array([radius*np.cos(current_angle), radius*np.sin(current_angle)])
                                 arrow = dict(arrowstyle="->")
-                                print 'tooclose!', k
+                                #print 'tooclose!', k
                                 tooclose=True
                     
                     textpositions.append(currentpos)
