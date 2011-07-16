@@ -74,6 +74,8 @@ import matplotlib.colorbar
 import matplotlib.patches as patches
 #from mpl_toolkits.axes_grid1 import make_axes_locatable
 
+import saccade_analysis
+import numpyimgproc as nim
 
 REQUIRED_LENGTH = 30
 REQUIRED_DIST = 0.1
@@ -143,13 +145,45 @@ def save(dataset, filename):
     pickle.dump(dataset, fd)
     return 1
     
+def show_dataset_boundary(dataset):
+    
+    fig = plt.figure()
+    ax = fig.add_subplot(111)
+    
+    for k, trajec in dataset.trajecs.items():
+        xmax = np.max(trajec.positions[:,0])
+        xmin = np.min(trajec.positions[:,0])
+        ymax = np.max(trajec.positions[:,1])
+        ymin = np.min(trajec.positions[:,1])
+        zmax = np.max(trajec.positions[:,2])
+        zmin = np.min(trajec.positions[:,2])
+    
+        ax.plot(zmax, ymax, '.', color='black')
+        ax.plot(zmin, ymin, '.', color='black')
+        
+    ax.set_xlim(-1.5, 1.5)
+    ax.set_ylim(-1.5, 1.5)
+    ax.set_autoscale_on(False)
+        
+    fig.savefig('trajectory_boundaries.pdf', format='pdf')
+    
 def make_no_post_dataset(dataset):
-    get_post_type_for_dataset(dataset)
+    #get_post_type_for_dataset(dataset)
     new_dataset = ffa.Dataset(like=dataset)
     for k,trajec in dataset.trajecs.items():
         trajec.key = k
-        if trajec.post_type == 'none':
+        if trajec.post_type == 'none' and len(trajec.speed) > 30:
             trajec.behavior = 'flyby'
+            new_dataset.trajecs.setdefault(k, trajec)
+            trajec.calc_dist_to_stim_r()
+    return new_dataset
+    
+def make_post_dataset(dataset):
+    #get_post_type_for_dataset(dataset)
+    new_dataset = ffa.Dataset(like=dataset)
+    for k,trajec in dataset.trajecs.items():
+        trajec.key = k
+        if trajec.post_type != 'none' and len(trajec.speed) > 30:
             new_dataset.trajecs.setdefault(k, trajec)
     return new_dataset
     
@@ -167,17 +201,32 @@ def make_behavior_dataset(dataset, filename='landing_dataset_10cm', behavior='la
             
             if trajec.behavior == 'landing' and trajec.post_type != 'none':
                 if trajec.dist_to_stim_r_normed[0] >= REQUIRED_DIST:
-                    trajec.frames = np.arange(get_frame_at_distance(trajec, REQUIRED_DIST), trajec.frame_of_landing).tolist()
-                    if trajec.frame_of_landing > REQUIRED_LENGTH:
-                        if np.max(trajec.positions[trajec.frames,2]) < 0: # altitude check: needs to be below post top
-                            #classify(trajec, dfar=REQUIRED_DIST, dnear=0.005)
-                            new_dataset.trajecs.setdefault(k, trajec)
+                    #if np.max(trajec.positions[:,2]) < 0 and np.min(trajec.positions[:,2]) > -0.15:
+                    if np.min(trajec.positions[:,2]) > -0.15:
+                        trajec.frames = np.arange(get_frame_at_distance(trajec, REQUIRED_DIST), trajec.frame_of_landing).tolist()
+                        if trajec.frame_of_landing > REQUIRED_LENGTH:
+                            if np.max(trajec.positions[trajec.frames,2]) < 0: # altitude check: needs to be below post top
+                                #classify(trajec, dfar=REQUIRED_DIST, dnear=0.005)
+                                new_dataset.trajecs.setdefault(k, trajec)
+                                
+                                frames_below_post = np.where(trajec.positions[:,2]<0)[0]
+                                
+                                continuous_blocks_of_frames = np.abs(floris.diffa(frames_below_post))
+                                break_pts = np.where( continuous_blocks_of_frames != 1)[0].tolist()
+                                continuous_blocks_of_frames[break_pts] = 0
+                                continuous_block_before_landing = nim.find_blob_nearest_to_point(continuous_blocks_of_frames, trajec.frame_of_landing)
+                                first_frame = frames_below_post[np.where(continuous_block_before_landing == 1)[0][0]]
+                                trajec.frames_below_post = np.arange(first_frame, trajec.frame_of_landing+1).tolist()
+
+                                if np.max(trajec.positions[trajec.frames_below_post,2]) > 0:
+                                    print k, np.max(trajec.positions[trajec.frames_below_post,2])
+                                
             elif trajec.behavior == 'flyby' and trajec.post_type != 'none':
                 frame_nearest_to_post = np.argmin(trajec.dist_to_stim_r)
                 print k
                 if frame_nearest_to_post > 10 and np.max(trajec.dist_to_stim_r[0:frame_nearest_to_post]) > REQUIRED_DIST:
-                    if 1:#np.max(trajec.positions[:,2]) < 0:
-                        if 1:#trajec.dist_to_stim_r[frame_nearest_to_post] < 0.06
+                    if np.max(trajec.positions[:,2]) < 0 and np.min(trajec.positions[:,2]) > -0.15:
+                        if trajec.dist_to_stim_r[frame_nearest_to_post] < 0.1:
                             fs = np.arange(frame_nearest_to_post,len(trajec.speed)).tolist()
                             try:
                                 last_frame = get_frame_at_distance(trajec, REQUIRED_DIST, frames=fs)
@@ -216,10 +265,10 @@ def make_behavior_dataset(dataset, filename='landing_dataset_10cm', behavior='la
                             
             elif trajec.behavior == 'flyby' and trajec.post_type == 'none':
                 frame_nearest_to_post = np.argmin(trajec.dist_to_stim_r)
-                
-                if frame_nearest_to_post > 10 and np.max(trajec.dist_to_stim_r[0:frame_nearest_to_post]) > REQUIRED_DIST:
-                    if np.max(trajec.positions[:,2]) < 0.07:
-                        if 1:#trajec.dist_to_stim_r[frame_nearest_to_post] < 0.04:
+                #print frame_nearest_to_post, np.max(trajec.dist_to_stim_r[0:frame_nearest_to_post]), trajec.positions[frame_nearest_to_post,2], trajec.positions[frame_nearest_to_post,2], trajec.dist_to_stim_r[frame_nearest_to_post]
+                if frame_nearest_to_post > 10 and np.max(trajec.dist_to_stim_r[0:frame_nearest_to_post]) > REQUIRED_DIST and np.mean(trajec.speed) > 0.05:
+                    if trajec.positions[frame_nearest_to_post,2] < 0.1 and trajec.positions[frame_nearest_to_post,2] > -0.15:
+                        if trajec.dist_to_stim_r[frame_nearest_to_post] < 0.1:
                             fs = np.arange(frame_nearest_to_post,len(trajec.speed)).tolist()
                             try:
                                 last_frame = get_frame_at_distance(trajec, REQUIRED_DIST, frames=fs)
@@ -633,23 +682,39 @@ def calc_tortuosity_btwn_saccades(trajec, s1, s2):
     f2 = get_saccade_range(trajec, s2)[0]
     return calc_tortuosity_for_frame_range(trajec, [f1,f2])
     
-def calc_saccades(trajec, magnitude=0.15):
+def calc_saccades(trajec, magnitude=351):
     raw_saccades = find_extrema_points(trajec.heading_smooth_diff)
     
-    windowed_heading_diff = diff_windowed(trajec.heading, 5)
+        
+    
+    #windowed_heading_diff = diff_windowed(trajec.heading, 5)
+    
+    angular_vel = np.abs( trajec.heading_smooth_diff )*100.*180/np.pi
     
     trajec.saccades = []
     trajec.all_saccades = []
     for saccade in raw_saccades:
-        if np.abs(windowed_heading_diff[saccade]) > magnitude:
-            if np.abs(saccade-trajec.frame_of_landing) > 4:
-                if trajec.behavior == 'flyby':
-                    if saccade > trajec.frames_of_flyby[0] and saccade < trajec.frame_nearest_to_post:
-                        trajec.saccades.append(saccade)
-                else:
-                    if saccade in trajec.frames:
-                        trajec.saccades.append(saccade)
-                trajec.all_saccades.append(saccade)
+        if trajec.speed[saccade-10] > 0.01:
+            #if np.abs(windowed_heading_diff[saccade]) > magnitude:
+            
+            if angular_vel[saccade] > magnitude:
+                if trajec.dist_to_stim_r_normed[saccade] > 0.005:
+                
+                    sac_range = get_saccade_range(trajec, saccade)
+                    if len(sac_range) < 3:
+                        continue
+                    for s in trajec.all_saccades:
+                        s_range = get_saccade_range(trajec, s)
+                        if saccade in s_range:
+                            continue
+                                    
+                    if trajec.behavior == 'flyby':
+                        if saccade > trajec.frames_of_flyby[0] and saccade < trajec.frame_nearest_to_post:
+                            trajec.saccades.append(saccade)
+                    else:
+                        if saccade in trajec.frames:
+                            trajec.saccades.append(saccade)
+                    trajec.all_saccades.append(saccade)
                             
 def calc_wv_ratio_cumsum(trajec, plot=False): 
 
@@ -848,19 +913,35 @@ def get_post_type_for_dataset(dataset):
     
     print len(post_types)
     
+    '''
     for f in dataset.filename:
         stringtime = f[4:19]
         epochtime = convert_stringtime_to_epochtime(stringtime)
         epochtimes.append(epochtime)
     epochtimes = np.array(epochtimes)
-
+    '''
+    
     for key, trajec in dataset.trajecs.items():
+        trajec.key = key
+        '''
         time_diff = trajec.epoch_time[0]*np.ones_like(epochtimes) - epochtimes
         time_diff[time_diff<0] = np.inf
         f = np.argmin(time_diff)
         trajec.post_type = post_types[ f ]
-        
-        calc_radius_at_nearest(trajec)
+        '''
+        try:
+            s = int(trajec.key.split('_')[0])
+            trajec.post_type = post_types[ s-1 ]
+            
+            calc_radius_at_nearest(trajec)
+        except:
+            print key
+            
+def print_key_prefix(dataset, post_type):
+    
+    for key in dataset.trajecs.keys():
+        if dataset.trajecs[key].post_type == post_type:
+            print dataset.trajecs[key].key[0:3]
 
     
 def print_posttype_for_classification(dataset, c):
@@ -1975,8 +2056,9 @@ def plot_angle_vs_speed_flyby(dataset, keys=None, dataset_landing=None):
 def saccade_angle_histogram(dataset, keys=None, plot=False, plot_sample_trajecs=False, post_type=['checkered', 'checkered_angled', 'black', 'black_angled'], filename=None, all_saccades=False):
     if keys is None:
         classified_keys = get_classified_keys(dataset)
-        keys = classified_keys['straight']
-    
+        #keys = classified_keys['straight']
+        keys = dataset.trajecs.keys()
+        
     angle = []
     speed = []
     for key in keys:
@@ -1993,12 +2075,22 @@ def saccade_angle_histogram(dataset, keys=None, plot=False, plot_sample_trajecs=
                         speed.append( trajec.speed[f] )
                 elif all_saccades is True:
                     for s in trajec.saccades:
-                        saccade_frames = get_saccade_range(trajec, s)
-                        #f = trajec.saccades[-1]
-                        f = saccade_frames[0]
-                        if trajec.angle_subtended_by_post[f] > 0:
-                            angle.append( trajec.angle_subtended_by_post[f] )
-                            speed.append( trajec.speed[f] )
+                        if trajec.behavior == 'flyby':
+                            if saccade_analysis.is_evasive(trajec, s):
+                                saccade_frames = get_saccade_range(trajec, s)
+                                #f = trajec.saccades[-1]
+                                f = saccade_frames[0]
+                                if trajec.angle_subtended_by_post[f] > 0:
+                                    angle.append( trajec.angle_subtended_by_post[f] )
+                                    speed.append( trajec.speed[f] )
+                        if trajec.behavior == 'landing':
+                            if not saccade_analysis.is_evasive(trajec, s):
+                                saccade_frames = get_saccade_range(trajec, s)
+                                #f = trajec.saccades[-1]
+                                f = saccade_frames[0]
+                                if trajec.angle_subtended_by_post[f] > 0:
+                                    angle.append( trajec.angle_subtended_by_post[f] )
+                                    speed.append( trajec.speed[f] )
     print 'N = ', len(speed)
     speed = np.array(speed)
     angle = np.log(np.array(angle))
@@ -2051,7 +2143,7 @@ def saccade_angle_histogram(dataset, keys=None, plot=False, plot_sample_trajecs=
             fig.savefig(filename, format='pdf', bbox='tight')
     return angle, speed, data_filtered, xvals
     
-def deceleration_angle_histogram_flyby(dataset, keys=None, plot=False, saccades=None, filename=None):
+def deceleration_angle_histogram_flyby(dataset, keys=None, plot=False, saccades=None, filename=None, angle_to_post_range=[0,5*np.pi/180.]):
     if keys is None:
         classified_keys = get_classified_keys(dataset)
         keys = classified_keys['straight']
@@ -2062,7 +2154,26 @@ def deceleration_angle_histogram_flyby(dataset, keys=None, plot=False, saccades=
     for key in keys:
         trajec = dataset.trajecs[key]
         if trajec.frame_at_deceleration is not None:
-            if np.abs(trajec.angle_to_post[trajec.frame_at_deceleration]) < np.pi:
+            if np.abs(trajec.angle_to_post[trajec.frame_at_deceleration]) < angle_to_post_range[-1] and np.abs(trajec.angle_to_post[trajec.frame_at_deceleration]) > angle_to_post_range[0]:
+                
+                if len(trajec.saccades) > 0:
+                    tmp = np.array(trajec.saccades) - trajec.frame_at_deceleration
+                    try:
+                        s = np.where(tmp > 0)[0][0]
+                    except:
+                        s = None
+                        
+                    if s is not None:
+                        s = trajec.saccades[s]
+                        dt = trajec.epoch_time[s] - trajec.epoch_time[trajec.frame_at_deceleration]
+                    else:
+                        dt = np.inf
+                else:
+                    dt = np.inf
+                    
+                if dt < 0.05:
+                    continue
+                
                 if saccades is False:
                     if len(trajec.saccades) == 0:
                         angle.append( trajec.angle_at_deceleration )
@@ -2122,6 +2233,43 @@ def deceleration_angle_histogram_flyby(dataset, keys=None, plot=False, saccades=
         fig.savefig(filename, format='pdf')
     return angle, bins, data_filtered, xvals, curve, yplus, yminus
     
+    
+def deceleration_saccade_angle_flyby(dataset, keys=None, plot=True, filename=None, angle_to_post_range=[0,5*np.pi/180.]):
+    if keys is None:
+        classified_keys = get_classified_keys(dataset)
+        keys = classified_keys['straight']
+        keys = dataset.trajecs.keys()
+        
+    fig = plt.figure()
+    fig.set_facecolor('white')
+    ax = fig.add_subplot(111)
+    
+    keys = keys[0:50]
+        
+    for key in keys:
+        trajec = dataset.trajecs[key]
+        if trajec.frame_at_deceleration is not None:
+            if 1: #np.abs(trajec.angle_to_post[trajec.frame_at_deceleration]) < angle_to_post_range[-1] and np.abs(trajec.angle_to_post[trajec.frame_at_deceleration]) > angle_to_post_range[0]:
+            
+                # find saccade after frame of deceleration:
+                if len(trajec.saccades) > 0:
+                    tmp = np.array(trajec.saccades) - trajec.frame_at_deceleration
+                    try:
+                        s = np.where(tmp > 0)[0][0]
+                    except:
+                        s = None
+                        
+                    if s is not None:
+                        s = trajec.saccades[s]
+                        print trajec.epoch_time[s] - trajec.epoch_time[trajec.frame_at_deceleration]
+                        ax.plot( np.log(trajec.angle_subtended_by_post[trajec.frame_at_deceleration]), trajec.speed[trajec.frame_at_deceleration], '.', color='blue')
+                        ax.plot( np.log(trajec.angle_subtended_by_post[s]), trajec.speed[s], '.', color='green')
+                        ax.plot( np.log(trajec.angle_subtended_by_post[trajec.frame_at_deceleration:s+1]), trajec.speed[trajec.frame_at_deceleration:s+1], '-', color='black', linewidth=0.3)
+                
+        if filename is None:
+            filename = 'deceleration_saccade_angle_flyby.pdf'
+        fig.savefig(filename, format='pdf')
+    return
     
     
 def leg_extension_angle_histogram(movie_dataset, plot=False, behavior='landing'):
@@ -3047,6 +3195,8 @@ def make_figs(dataset_landing, dataset_flyby, movie_dataset=None):
     saccade_angle_histogram(dataset_flyby, plot=True, post_type=['checkered','checkered_angled'], filename='saccade_angle_histogram_checkered.pdf')
     saccade_angle_histogram(dataset_flyby, plot=True, plot_sample_trajecs=False, filename='saccade_angle_histogram.pdf')
     
+    saccade_angle_histogram(dataset_landing, plot=True, plot_sample_trajecs=False, filename='saccade_angle_histogram_landing.pdf')
+    
     if movie_dataset is not None:
         leg_extension_angle_histogram(movie_dataset, plot=True, behavior='landing')
     deceleration_angle_histogram_flyby(dataset_flyby, plot=True, saccades=True)
@@ -3056,6 +3206,15 @@ def make_figs(dataset_landing, dataset_flyby, movie_dataset=None):
     saccade_deceleration_relation(dataset_flyby, keys=None)
     print 'done'
     return
+    
+def make_deceleration_angle_histograms_flyby(dataset):
+    
+    deceleration_angle_histogram_flyby(dataset, keys=None, plot=True, saccades=None, filename='flyby_deceleration_angle_histogram_10deg.pdf', angle_to_post_range=[0,10*np.pi/180.])
+    
+    deceleration_angle_histogram_flyby(dataset, keys=None, plot=True, saccades=None, filename='flyby_deceleration_angle_histogram_20deg.pdf', angle_to_post_range=[10*np.pi/180.,20*np.pi/180.])
+    
+    deceleration_angle_histogram_flyby(dataset, keys=None, plot=True, saccades=None, filename='flyby_deceleration_angle_histogram_30deg.pdf', angle_to_post_range=[20*np.pi/180.,30*np.pi/180.])
+    
     
 def make_landing_angle_vs_speed_figs(dataset_landing):
     classified_keys = get_classified_keys(dataset_landing)
@@ -3071,26 +3230,32 @@ def make_flyby_angle_vs_speed_figs(dataset_flyby):
     
 def get_saccade_range(trajec, saccade_frame=None, plot=False):
     
-    first_frame = np.max([0, saccade_frame-15])
-    last_frame = np.min([saccade_frame+15, len(trajec.speed)-1])
-    frames = np.arange(first_frame, last_frame).tolist()
-    angular_vel = np.abs( sa1.diffa( trajec.heading[frames] ) )*100.*180/np.pi
-    saccade_frames_raw = angular_vel > 350
-    saccade_frames_blob = nim.find_biggest_blob(saccade_frames_raw)
-    saccade_frames = np.where(saccade_frames_blob == 1)[0].tolist()
-    
-    
-    if plot:
-        print saccade_frames
+    try:
         
-        fig = plt.figure()
-        ax = fig.add_subplot(111)
+        first_frame = np.max([0, saccade_frame-15])
+        last_frame = np.min([saccade_frame+15, len(trajec.speed)-1])
+        frames = np.arange(first_frame, last_frame).tolist()
+        angular_vel = np.abs( sa1.diffa( trajec.heading[frames] ) )*100.*180/np.pi
+        saccade_frames_raw = angular_vel > 350
         
-        ax.plot( frames, np.abs( sa1.diffa( trajec.heading[frames] ) ), color='blue' )
-        ax.plot( np.array(saccade_frames)+frames[0], np.abs( sa1.diffa( trajec.heading[np.array(saccade_frames)+frames[0]] ) ), color='green' )
-        fig.savefig('test.pdf', format='pdf')
+        saccade_frames_blob = nim.find_blob_nearest_to_point(saccade_frames_raw, saccade_frame-first_frame)
+        saccade_frames = np.where(saccade_frames_blob == 1)[0].tolist()
         
-    return (np.array(saccade_frames)+frames[0]).tolist()
+        if plot:
+            print saccade_frames
+            
+            fig = plt.figure()
+            ax = fig.add_subplot(111)
+            
+            ax.plot( frames, np.abs( sa1.diffa( trajec.heading[frames] ) ), color='blue' )
+            ax.plot( np.array(saccade_frames)+frames[0], np.abs( sa1.diffa( trajec.heading[np.array(saccade_frames)+frames[0]] ) ), color='green' )
+            fig.savefig('test.pdf', format='pdf')
+            
+        return (np.array(saccade_frames)+frames[0]).tolist()
+        
+    except:
+        print 'excepted'
+        return [saccade_frame, saccade_frame+1]
     
     
 def histogram_saccade_length(dataset, keys=None):
@@ -3179,3 +3344,17 @@ def remove_duplicate_trajectories(dataset, delete=False):
                             del(dataset.trajecs[k])
                             deleted_keys.append(k)
             
+def fix_sawyers_callibration(dataset):
+    keys = dataset.trajecs.keys()
+    for key in keys:
+        trajec = dataset.trajecs[key]
+        trajec.positions[:,2] -= 0.15
+    
+    
+def print_test(dataset):
+    keys = dataset.trajecs.keys()
+    for key in keys:
+        trajec = dataset.trajecs[key]
+        if np.max(trajec.positions[:,2]) > 0:
+            print key
+    

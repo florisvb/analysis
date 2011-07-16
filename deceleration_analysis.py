@@ -110,6 +110,7 @@ def sim_deceleration(trajec, gain):
     fps = 2000.
     dt = 1/fps
     r = 0.009565
+    r = 0.009565
     radius = r
     
     
@@ -153,23 +154,32 @@ def sim_deceleration(trajec, gain):
             m = -0.21/radius
             b = 0.159/radius
             expthreshold = (m*np.log(af)+b)*(2*np.tan(af/2.)*np.sin(af/2.))
-            
+            #tti_threshold = 0.15
+            #expthreshold = 2*np.tan(af/2.) / tti_threshold
+    
             exp0 -= expthreshold
             exp1 -= expthreshold
+            
+            #tti = 2*np.tan(af/2.) / exp0
+            #tti = np.max([tti, 0])
+            
             
             exp0 = np.max([exp0, 0])
             exp1 = np.max([exp1, 0])
             
+            #c = -1*exp0 / 3500.
             
-            dda = -1*(exp0-exp1)/dt
+            #dda = (exp1-exp0)/dt
+            #c = dda / gain[0]
             
-            dda = np.min([dda, 0])
-            
-            c = dda / gain[0]
+            c = -1*af / 800
+            print c
             
             
             c = np.min([c,0])
-            v = np.max([speed[f-1] + c, 0])
+            #max_accel = -.007
+            #c = np.max([c,max_accel])
+            v = np.max([speed[f-1] + c, 0.07])
             speed[f] = v
             
     return angle[frames], speed[frames]

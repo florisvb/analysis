@@ -97,11 +97,12 @@ class Dataset:
                 objs = [objs] 
             obj_only = np.array(objs)
             
-            
+        print fps
         print 'loading data.... '
         for obj_id in obj_only:
-        
+            print 'processing: ', obj_id
             try: 
+                print obj_id
                 # kalman rows = [
                 kalman_rows =  ca.load_data( obj_id, data_file,
                                      dynamic_model_name = dyn_model,

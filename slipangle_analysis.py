@@ -61,7 +61,7 @@ import numpy as np
 
 
 
-def get_slipangles(movie):
+def get_slipangles(movie, behavior='straight'):
     fa.prep_movie_trajec(movie)
     trajec = movie.trajec
     
@@ -77,18 +77,27 @@ def get_slipangles(movie):
         for s in trajec.saccades:
             sac_range = fa.get_saccade_range(trajec, s)
             saccade_frames.extend(sac_range)
-    frames = []
+    straight_frames = []
+    saccade_frames = []
+    landing_frames = []
     print first_frame, last_frame
     for f in range(first_frame, last_frame):
         print f
         if f in saccade_frames:
             print 'x'
-            pass
-        elif trajec.dist_to_stim_r_normed[f] < closest_dist:
+            saccade_frames.append(f)
+        if trajec.dist_to_stim_r_normed[f] < closest_dist and trajec.behavior == 'landing':
             print 'y'
-            pass
+            landing_frames.append(f)
         else:
-            frames.append(f)
+            straight_frames.append(f)
+            
+    if behavior == 'straight':
+        frames = straight_frames
+    elif behavior == 'saccade':
+        frames = saccade_frames
+    elif behavior == 'landing':
+        if 
     
     slipangles = []
     for f in frames:
@@ -136,7 +145,7 @@ def get_slipangles_for_movie_dataset(movie_dataset):
     string = 'N='+str(N)+'\nn='+str(n)
     ax.text(45,60,string)
         
-    fig.savefig('slipangles.pdf', format='pdf')
+    fig.savefig('slipangles_nosaccade.pdf', format='pdf')
                 
     return slipangles
 

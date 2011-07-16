@@ -2,6 +2,8 @@ import sympy
 import numpy as np
 import scipy.optimize
 import scipy.stats.distributions as distributions
+from matplotlib import patches
+from scipy import signal
 
 def atan2(y, x):
     """take arctangent of y/x preserving angle"""
@@ -108,8 +110,12 @@ def diffa(array):
     d = np.hstack( (d[0], d) )
     return d
     
-def linear_fit_type2(xdata, ydata, alpha=0.05, full_output=False):
+def linear_fit_type2(xdata, ydata, alpha=0.05, full_output=False, weights=None):
+    return linear_fit_type(xdata, ydata, alpha=0.05, full_output=full_output, weights=None, fit_type=2)
     
+def linear_fit_type(xdata, ydata, alpha=0.05, full_output=False, weights=None, fit_type=1):
+    if weights is None:
+        weights = np.ones_like(xdata)
     fity = np.polyfit(xdata, ydata, 1)
     #fitx = np.polyfit(ydata, xdata, 1)
     
@@ -121,7 +127,10 @@ def linear_fit_type2(xdata, ydata, alpha=0.05, full_output=False):
         #errarr = []
         for i, x in enumerate(xdata):
             y = ydata[i]
-            err += dist_point_to_line([x,y], linept1, linept2)**2
+            if fit_type == 2:
+                err += dist_point_to_line([x,y], linept1, linept2)**2 *weights[i]
+            elif fit_type == 1:
+                err += np.abs(y - (x*params[0]+params[1])) *weights[i]
             #errarr.append( dist_point_to_line([x,y], linept1, linept2, sign=True))
         return err
         
@@ -154,5 +163,64 @@ def linear_fit_type2(xdata, ydata, alpha=0.05, full_output=False):
     
     
     
+def custom_hist_rectangles(hist, leftedges, width, facecolor='green', edgecolor='none', alpha=1):
+
+    if type(width) is not list:
+        width = [width for i in range(len(hist))]
+            
+    rects = [None for i in range(len(hist))]
+    for i in range(len(hist)):
+        rects[i] = patches.Rectangle( [leftedges[i], 0], width[i], hist[i], facecolor=facecolor, edgecolor=edgecolor, alpha=alpha)
+
+    return rects
+
+
+
+
+def histogram(ax, data_list, bins=10, bin_width_ratio=0.6, colors='green', edgecolor='none', bar_alpha=0.7, curve_alpha=0.4, curve_butter_filter=[3,0.3], return_vals=False):
+
+    n_bars = float(len(data_list))
+    if type(bins) is int:
+        bins = np.linspace(np.min(data_list), np.max(data_list), bins, endpoint=True)
+        
+    if type(colors) is not list:
+        colors = [colors]
+    if len(colors) != n_bars:
+        colors = [colors[0] for i in range(n_bars)]
+        
+    bin_centers = np.diff(bins)/2. + bins[0:-1]
+    bin_width = np.mean(np.diff(bins))
+    bin_width_buff = (1-bin_width_ratio)*bin_width/2.
+    bar_width = (bin_width-2*bin_width_buff)/n_bars
     
+    butter_b, butter_a = signal.butter(curve_butter_filter[0], curve_butter_filter[1])
+    
+    if return_vals:
+        data_hist_list = [None for i in range(n_bars)]
+        data_curve_list = [None for i in range(n_bars)]
+    for i, data in enumerate(data_list):
+        data_hist = np.histogram(data, bins=bins)[0]
+        print len(data), len(data_hist)
+        rects = custom_hist_rectangles(data_hist, bins[0:-1]+bar_width*i+bin_width_buff, width=bar_width, facecolor=colors[i], edgecolor=edgecolor, alpha=bar_alpha)
+        for rect in rects:
+            rect.set_zorder(1)
+            ax.add_artist(rect)
+    
+        data_hist_filtered = signal.filtfilt(butter_b, butter_a, data_hist)
+        interped_bin_centers = np.linspace(bin_centers[0], bin_centers[-1], 100, endpoint=True)
+        v = 100 / float(len(bin_centers))
+        interped_data_hist_filtered = np.interp(interped_bin_centers, bin_centers, data_hist_filtered)
+        interped_data_hist_filtered2 = signal.filtfilt(butter_b/v, butter_a/v, interped_data_hist_filtered)
+        #ax.plot(bin_centers, data_hist_filtered, color=facecolor[i])
+        ax.fill_between(interped_bin_centers, interped_data_hist_filtered2, np.zeros_like(interped_data_hist_filtered2), color=colors[i], alpha=curve_alpha, zorder=-100, edgecolor='none')
+        
+        if return_vals:
+            data_hist_list.append(data_hist)
+            data_curve_list.append(data_hist_filtered)
+            
+    if return_vals:
+        return bins, data_hist_list, data_curve_list
+        
+
+ 
     
