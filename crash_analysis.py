@@ -125,17 +125,19 @@ def crash_analysis(dataset, dataset_landing, keys=None):
         trajec = dataset.trajecs[key]
         ftp = np.arange(trajec.frames[0], trajec.frames[-1]).tolist()
         
-        alpha = 0.2
+        alpha = 0.1
+        color = 'blue'
         if key == '20101111_C001H001S0045':
             alpha = 1
+            color = 'black'
             
         if trajec.angle_at_deceleration*180/np.pi > 90:
             print key
         
-        ax.plot( np.log(trajec.angle_subtended_by_post[ftp]), trajec.speed[ftp], color='black', linewidth=1, alpha=alpha)
-        ax.plot( np.log(trajec.angle_at_deceleration), trajec.speed_at_deceleration, '*', color='blue', alpha=alpha, markeredgecolor='blue')
+        ax.plot( np.log(trajec.angle_subtended_by_post[ftp]), trajec.speed[ftp], color='black', linewidth=0.5, alpha=alpha)
+        ax.plot( np.log(trajec.angle_at_deceleration), trajec.speed_at_deceleration, '.', color=color, alpha=0.8)
         
-    x, y, yminus, yplus = fa.get_angle_vs_speed_curve(dataset_landing, plot=False)
+    fit, Rsq, x, y, yminus, yplus = fa.get_angle_vs_speed_curve(dataset_landing, plot=False)
     ax.plot( x, y, color='blue')
     ax.fill_between(x, yplus, yminus, color='blue', linewidth=0, alpha=0.2)
     
@@ -155,16 +157,16 @@ def landing_analysis_for_crash_comparison(dataset, keys=None):
     for key in keys:
         trajec = dataset.trajecs[key]
         ftp = np.arange(trajec.frames[0]-25, trajec.frames[-1]).tolist()
-        ax.plot( np.log(trajec.angle_subtended_by_post[ftp]), trajec.speed[ftp], color='black', linewidth=1, alpha=0.05)
+        ax.plot( np.log(trajec.angle_subtended_by_post[ftp]), trajec.speed[ftp], color='black', linewidth=0.5, alpha=0.05)
 
     keys_to_plot = ['2_29065', '2_31060', '8_10323', '6_715']
     for key in keys_to_plot:
         trajec = dataset.trajecs[key]
         ftp = np.arange(trajec.frames[0]-25, trajec.frames[-1]).tolist()
-        ax.plot( np.log(trajec.angle_subtended_by_post[ftp]), trajec.speed[ftp], color='black', linewidth=1)
-        ax.plot( np.log(trajec.angle_at_deceleration), trajec.speed_at_deceleration, '.', color='blue', alpha=1)
+        ax.plot( np.log(trajec.angle_subtended_by_post[ftp]), trajec.speed[ftp], color='black', linewidth=0.5)
+        ax.plot( np.log(trajec.angle_at_deceleration), trajec.speed_at_deceleration, '.', color='black', alpha=1)
         
-    x, y, yminus, yplus = fa.get_angle_vs_speed_curve(dataset, plot=False)
+    fit, Rsq, x, y, yminus, yplus = fa.get_angle_vs_speed_curve(dataset, plot=False)
     ax.plot( x, y, color='blue')
     ax.fill_between(x, yplus, yminus, color='blue', linewidth=0, alpha=0.2)
         

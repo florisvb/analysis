@@ -60,12 +60,12 @@ import numpy as np
 
 
 
-def landing(dataset_landing, movie_dataset, speed=0.6):
+def landing(dataset_landing, movie_dataset, speed=0.2):
 
     behavior = 'landing'
     
     
-    fps = 100.
+    fps = 1000.
     dt = 1/fps
     r = 0.009565
     radius = r
@@ -73,7 +73,7 @@ def landing(dataset_landing, movie_dataset, speed=0.6):
     vel = [speed, 0]
     dvda = -0.2
     
-    nf = 200
+    nf = 5000
     positions = np.zeros([nf, 2])
     positions[0] = pos0
     velocities = np.zeros([nf, 2])
@@ -88,7 +88,7 @@ def landing(dataset_landing, movie_dataset, speed=0.6):
     deceleration_initiated = False
     
     for f in range(1,nf): 
-        if np.linalg.norm(positions[f-1])-radius <= 0.001:
+        if np.linalg.norm(positions[f-1])-radius <= 0.0001:
             landed = True
         else:
             landed = False
@@ -100,10 +100,35 @@ def landing(dataset_landing, movie_dataset, speed=0.6):
             distance[f] = np.linalg.norm(positions[f]) - radius
             angle_subtended_by_post[f] = 2*np.arcsin( radius / (distance[f]+radius) )
             
-            if deceleration_initiated:
+            if f>5:
                 #velocities[f,0] = -.21*np.log(angle_subtended_by_post[f])+.2
                 da = np.log(angle_subtended_by_post[f])-np.log(angle_subtended_by_post[f-1])
-                velocities[f,0] = velocities[f-1,0] + dvda*da
+                
+                a = angle_subtended_by_post
+                af = np.min([a[f], 3])
+                exp0 = (a[f]-a[f-1])/dt #/ (-2.*np.tan(a[f]/2.))
+                exp1 = (a[f-1]-a[f-2])/dt #/ (-2.*np.tan(a[f-1]/2.))
+                
+                m = -0.21/radius
+                b = 0.159/radius
+                expthreshold = (m*np.log(af)+b)*(2*np.tan(af/2.)*np.sin(af/2.))
+        
+                exp0 -= expthreshold
+                exp1 -= expthreshold
+                
+                exp0 = np.max([exp0, 0])
+                exp1 = np.max([exp1, 0])
+                
+                #c = -1*exp0 / 3500.
+                
+                dda = (exp1-exp0)/dt
+                c = dda / 150000.
+                print dda, velocities[f-1,0]
+                
+                c = np.min([c,0])
+                v = np.max([speed[f-1] + c, 0.0])
+                
+                velocities[f,0] = v
             else:
                 velocities[f] = velocities[f-1]
 
@@ -118,105 +143,14 @@ def landing(dataset_landing, movie_dataset, speed=0.6):
             if angle_subtended_by_post[f]*180/np.pi > 70 or np.isnan(angle_subtended_by_post[f]):
                 leg_ext[f] = 1
 
-            
-                
-                
-    # plot
-    fig = plt.figure()
-    ax = fig.add_subplot(111)
-    
-    flycon_flying = plt.imread('flying_flycon.png')
-    flycon_landing = plt.imread('landing_flycon.png')
-    first_leg_ext = np.where(leg_ext==1)[0][0]
-    
-    for f in frames:
-        '''
-        if not leg_ext[f]:
-            color = 'black'
-        else:
-            color = 'red'            
-        if f == frame_at_deceleration:
-            color = 'blue'
-        '''
-        color='black'
-                 
-        x = positions[f,0]
-        y = positions[f,1]
-        w = flycon_flying.shape[0]/(7*1000.*.8)
-        h = flycon_flying.shape[1]/(5.*1000.*.8)
-        
-        if f == frame_at_deceleration:
-            ax.imshow(flycon_flying, extent=(x-2*w, x, y-h, y+h), aspect='equal')
-            
-            # show angle subtended
-            d = np.linalg.norm([x-.001,y])
-            half_angle_to_post = np.arcsin( radius / d )
-            world_angle = np.arctan2(y,x-.001)
-            
-            a = half_angle_to_post - world_angle
-            visual_intercept_1 = [0+np.cos(np.pi/2.-a)*radius, 0+np.sin(np.pi/2.-a)*radius]
-            
-            a = half_angle_to_post + world_angle
-            visual_intercept_2 = [0+np.cos(np.pi/2.-a)*radius, 0-np.sin(np.pi/2.-a)*radius]
-            
-            xy = np.vstack( (visual_intercept_1, visual_intercept_2, [x-.001,y]) )
-            triangle = patches.Polygon( xy, facecolor='blue', edgecolor='none', zorder=-10, alpha=0.2 )
-            ax.add_artist(triangle)
-            
-            '''
-            arc = patches.Arc( (x,y), .05, .05, 180, (world_angle - half_angle_to_post)*180/np.pi, (half_angle_to_post + world_angle)*180/np.pi, edgecolor='blue', linewidth=1)
-            ax.add_artist(arc)
-            '''
-        
-        elif f == first_leg_ext:
-            ax.imshow(flycon_landing, extent=(x-2*w, x, y-h, y+h), aspect='equal')
-            
-            # show angle subtended
-            d = np.linalg.norm([x-.001,y])
-            half_angle_to_post = np.arcsin( radius / d )
-            world_angle = np.arctan2(y,x-.001)
-            
-            a = half_angle_to_post - world_angle
-            visual_intercept_1 = [0+np.cos(np.pi/2.-a)*radius, 0+np.sin(np.pi/2.-a)*radius]
-            
-            a = half_angle_to_post + world_angle
-            visual_intercept_2 = [0+np.cos(np.pi/2.-a)*radius, 0-np.sin(np.pi/2.-a)*radius]
-            
-            xy = np.vstack( (visual_intercept_1, visual_intercept_2, [x-.001,y]) )
-            triangle = patches.Polygon( xy, facecolor='red', edgecolor='none', zorder=-10, alpha=0.2 )
-            ax.add_artist(triangle)
-            
-        else:
-            pt = patches.Circle( (positions[f,0],positions[f,1]), radius=0.0005, facecolor=color, edgecolor='none')
-            ax.add_artist(pt)  
-            
-    
-         
-    # post      
-    post = patches.Circle( (0,0), radius=radius, facecolor='black', edgecolor='none')
-    ax.add_artist(post)
-            
     
     
-    
-            
-    ax.set_aspect('equal')
-    ax.set_xlim([-0.2, 0.01])
-    ax.set_ylim([-0.08, 0.08])
-    ax.set_axis_off()
-    fig.set_size_inches(6.5,6.5)
-    fig.subplots_adjust(bottom=0., top=1, right=0.95, left=0.05)
-    filename = 'landing_cartoon.pdf'
-    fig.savefig(filename, format='pdf')
-            
-            
-            
             
             
     fig2 = plt.figure()  
     ax2 = fig2.add_subplot(111)
     
-    x, y, yminus, yplus = fa.get_angle_vs_speed_curve(dataset_landing, plot=False)
+    fit, Rsq, x, y, yminus, yplus = fa.get_angle_vs_speed_curve(dataset_landing, plot=False)
     ax2.plot( x, y, color='blue', alpha=0.3)
     ax2.fill_between(x, yplus, yminus, color='blue', linewidth=0, alpha=0.2)
     
@@ -239,7 +173,7 @@ def landing(dataset_landing, movie_dataset, speed=0.6):
 
 
 
-def flyby(dataset_flyby, speed=0.4):
+def flyby(dataset_flyby, speed=0.5):
 
     behavior = 'flyby'
     
