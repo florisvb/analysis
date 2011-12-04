@@ -61,7 +61,7 @@ import numpy as np
 #20101030_C001H001S0019
 
 
-def flyby_xy_spagetti(dataset, keys=None, show_all_poi=False, filename='flyby_xy_spagetti.pdf', nkeys=300):
+def flyby_xy_spagetti(dataset, keys=None, show_all_poi=False, filename='flyby_xy_spagetti.pdf', nkeys=300, alpha2=1, color2='gray', show_saccades=True, keys_to_highlight=None, show_deceleration=True):
     fig = plt.figure()
     ax = fig.add_subplot(111)
     ax.set_ylim(-.15,.15)
@@ -76,7 +76,7 @@ def flyby_xy_spagetti(dataset, keys=None, show_all_poi=False, filename='flyby_xy
     keys_without_saccades = []
     for key in keys:
         trajec = dataset.trajecs[key]    
-        if len(trajec.saccades) > 0:
+        if len(trajec.sac_ranges) > 0:
             keys_with_saccades.append(key)
         else:
             keys_without_saccades.append(key)
@@ -90,7 +90,9 @@ def flyby_xy_spagetti(dataset, keys=None, show_all_poi=False, filename='flyby_xy
             key_to_highlight = keys[k]
     '''
     
-    keys_to_highlight = ['10_80113']
+    if keys_to_highlight is None:
+        keys_to_highlight = ['10_80113']
+        
     print keys_to_highlight
 
     if len(keys) > nkeys:
@@ -105,24 +107,29 @@ def flyby_xy_spagetti(dataset, keys=None, show_all_poi=False, filename='flyby_xy
             linewidth = 1
             color = 'black'
             zorder = 500
-            ax.plot(trajec.positions[:,0], trajec.positions[:,1], '-', color='black', alpha=1, linewidth=0.5, zorder=zorder)
+            ax.plot(trajec.positions[:,0], trajec.positions[:,1], '-', color='black', alpha=1, linewidth=linewidth, zorder=zorder)
+            frames = np.arange(0,trajec.frames_of_flyby[-1]).tolist()
+            ax.plot(trajec.positions[frames,0], trajec.positions[frames,1], '-', color='blue', alpha=1, linewidth=linewidth, zorder=zorder)
         else:
-            alpha = 0.2
-            linewidth = 0.3
-            color = 'black'
+            linewidth = 0.5
             zorder = 100
             
-        frames = np.arange(0,trajec.frames_of_flyby[-1]).tolist()
-        ax.plot(trajec.positions[frames,0], trajec.positions[frames,1], '-', color=color, alpha=alpha, linewidth=linewidth, zorder=zorder)
+            frames = np.arange(0,trajec.frames_of_flyby[-1]).tolist()
+            ax.plot(trajec.positions[frames,0], trajec.positions[frames,1], '-', color=color2, alpha=alpha2, linewidth=linewidth, zorder=zorder)
             
-        if len(trajec.all_saccades) > 0:
-            for s in trajec.all_saccades:
-                if s < trajec.frame_nearest_to_post:
-                    sac_range = fa.get_saccade_range(trajec, s) 
-                    ax.plot(trajec.positions[sac_range,0], trajec.positions[sac_range,1], '-', color='red', alpha=alpha*2, linewidth=linewidth, zorder=zorder+1)
-                    sac = patches.Circle( (trajec.positions[sac_range[0],0], trajec.positions[sac_range[0],1]), radius=0.001, facecolor='red', edgecolor='none', alpha=alpha, zorder=zorder+1)
-                    ax.add_artist(sac)
-        
+        if show_saccades:
+            if len(trajec.sac_ranges) > 0:
+                for sac_range in trajec.sac_ranges:
+                    if sac_range[0] < trajec.frame_nearest_to_post:
+                    #if 1:
+                        ax.plot(trajec.positions[sac_range,0], trajec.positions[sac_range,1], '-', color='red', alpha=alpha2, linewidth=linewidth, zorder=zorder+1)
+                        sac = patches.Circle( (trajec.positions[sac_range[0],0], trajec.positions[sac_range[0],1]), radius=0.001, facecolor='red', edgecolor='none', alpha=alpha2, zorder=zorder+1)
+                        ax.add_artist(sac)
+                        
+        if show_deceleration:
+            dec = patches.Circle( (trajec.positions[trajec.frame_at_deceleration,0], trajec.positions[trajec.frame_at_deceleration,1]), radius=0.001, facecolor='purple', edgecolor='none', color='purple', linewidth=2, alpha=alpha2, zorder=zorder+1)
+            ax.add_artist(dec)
+            
     
     
     
@@ -138,14 +145,14 @@ def flyby_xy_spagetti(dataset, keys=None, show_all_poi=False, filename='flyby_xy
     prep_xy_spagetti_for_saving(ax)
     fig.savefig(filename, format='pdf')
     
-def landing_xy_spagetti(dataset, keys=None, show_all_poi=False):
+def landing_xy_spagetti(dataset, keys=None, show_all_poi=False, alpha2=1, color2='gray', show_saccades=True):
     fig = plt.figure()
     ax = fig.add_subplot(111)
     ax.set_ylim(-.15,.15)
     ax.set_xlim(-.25, .25)
     ax.set_autoscale_on(False)
     if keys is None:
-        classified_keys = fa.get_classified_keys(dataset)
+        #classified_keys = fa.get_classified_keys(dataset)
         keys = dataset.trajecs.keys()
     
     #keys_to_highlight = [keys[33]]
@@ -155,7 +162,9 @@ def landing_xy_spagetti(dataset, keys=None, show_all_poi=False):
     # hover loop: 10_78813
     
     keys_to_highlight = ['5_15269', '24_68713', '10_78813', '1_27887']
-    
+    #keys_to_highlight = ['5_15269']
+    #keys = keys_to_highlight
+    #keys_to_highlight = []
     print keys_to_highlight
     
     for key in keys:
@@ -166,30 +175,28 @@ def landing_xy_spagetti(dataset, keys=None, show_all_poi=False):
         else:
             flip = 1
             
+        initial_frame = fa.get_frame_at_distance(trajec, 0.25)
+        frames = np.arange(initial_frame, len(trajec.speed)-1).tolist()
+            
         if key in keys_to_highlight:
             alpha = 1
             linewidth = 1
             color = 'black'
             zorder = 500
-            initial_frame = fa.get_frame_at_distance(trajec, 0.25)
-            frames = np.arange(initial_frame, len(trajec.speed)-1).tolist()
+            ax.plot(flip*trajec.positions[frames,0], flip*trajec.positions[frames,1], '-', color=color, alpha=alpha, linewidth=linewidth, zorder=zorder)
         else:
-            alpha = 0.2
-            linewidth = 0.3
-            color = 'black'
+            linewidth = 0.5
             zorder = 100
-            frames = trajec.frames_below_post
-            #frames = np.arange(0,len(trajec.speed)-1).tolist()
             
-        ax.plot(flip*trajec.positions[frames,0], flip*trajec.positions[frames,1], '-', color='black', alpha=alpha, linewidth=linewidth, zorder=zorder)
+            ax.plot(flip*trajec.positions[frames,0], flip*trajec.positions[frames,1], '-', color=color2, alpha=alpha2, linewidth=linewidth, zorder=zorder)
             
-        if len(trajec.all_saccades) > 0:
-            for s in trajec.all_saccades:
-                if s in frames:
-                    sac_range = fa.get_saccade_range(trajec, s) 
-                    ax.plot(flip*trajec.positions[sac_range,0], flip*trajec.positions[sac_range,1], '-', color='red', alpha=alpha*2, linewidth=linewidth, zorder=zorder+1)
-                    sac = patches.Circle( (flip*trajec.positions[sac_range[0],0], flip*trajec.positions[sac_range[0],1]), radius=0.001, facecolor='red', edgecolor='none', alpha=alpha, zorder=zorder+1)
-                    ax.add_artist(sac)
+        if show_saccades:
+            if len(trajec.sac_ranges) > 0:
+                for sac_range in trajec.sac_ranges:
+                    if sac_range[-1] in frames:
+                        ax.plot(flip*trajec.positions[sac_range,0], flip*trajec.positions[sac_range,1], '-', color='red', alpha=alpha2, linewidth=linewidth, zorder=zorder+1)
+                        sac = patches.Circle( (flip*trajec.positions[sac_range[0],0], flip*trajec.positions[sac_range[0],1]), radius=0.001, facecolor='red', edgecolor='none', alpha=alpha2, zorder=zorder+1)
+                        ax.add_artist(sac)
         
     '''
     trajec_to_highlight = dataset.trajecs[key_to_highlight]
@@ -309,7 +316,7 @@ def flyby_xy_spagetti_types(dataset_flyby):
     
     
     
-def flyby_xy_spagetti_nopost(dataset, keys=None, filename='flyby_xy_spagetti_nopost.pdf'):
+def flyby_xy_spagetti_nopost(dataset, keys=None, filename='flyby_xy_spagetti_nopost.pdf', alpha2=1, color2='gray', show_saccades=True):
     fig = plt.figure()
     ax = fig.add_subplot(111)
     ax.set_ylim(-.15,.15)
@@ -323,29 +330,29 @@ def flyby_xy_spagetti_nopost(dataset, keys=None, filename='flyby_xy_spagetti_nop
     print keys_to_highlight
     for key in keys:
         trajec = dataset.trajecs[key]    
+        frames = np.arange(0,trajec.frames_of_flyby[-1]).tolist()
         
         if key in keys_to_highlight:
             alpha = 1
             linewidth = 1
             color = 'black'
             zorder = 500
-            ax.plot(trajec.positions[:,0], trajec.positions[:,1], '-', color='black', alpha=1, linewidth=0.5, zorder=zorder)
+            ax.plot(trajec.positions[:,0], trajec.positions[:,1], '-', color='black', alpha=1, linewidth=linewidth, zorder=zorder)
+            ax.plot(trajec.positions[frames,0], trajec.positions[frames,1], '-', color='blue', alpha=1, linewidth=linewidth, zorder=zorder)
         else:
-            alpha = 0.2
-            linewidth = 0.3
+            linewidth = 0.5
             color = 'black'
             zorder = 100
+            ax.plot(trajec.positions[frames,0], trajec.positions[frames,1], '-', color=color2, alpha=alpha2, linewidth=linewidth, zorder=zorder)
             
-        frames = np.arange(0,trajec.frames_of_flyby[-1]).tolist()
-        ax.plot(trajec.positions[frames,0], trajec.positions[frames,1], '-', color='black', alpha=alpha, linewidth=linewidth, zorder=zorder)
-            
-        if len(trajec.all_saccades) > 0:
-            for s in trajec.all_saccades:
-                if s < trajec.frame_nearest_to_post:
-                    sac_range = fa.get_saccade_range(trajec, s) 
-                    ax.plot(trajec.positions[sac_range,0], trajec.positions[sac_range,1], '-', color='red', alpha=alpha, linewidth=linewidth, zorder=zorder+1)
-                    sac = patches.Circle( (trajec.positions[sac_range[0],0], trajec.positions[sac_range[0],1]), radius=0.001, facecolor='red', edgecolor='none', alpha=alpha, zorder=zorder+1)
-                    ax.add_artist(sac)
+        if show_saccades:
+            if len(trajec.all_saccades) > 0:
+                for s in trajec.all_saccades:
+                    if s < trajec.frame_nearest_to_post:
+                        sac_range = fa.get_saccade_range(trajec, s) 
+                        ax.plot(trajec.positions[sac_range,0], trajec.positions[sac_range,1], '-', color='red', alpha=alpha2, linewidth=linewidth, zorder=zorder+1)
+                        sac = patches.Circle( (trajec.positions[sac_range[0],0], trajec.positions[sac_range[0],1]), radius=0.001, facecolor='red', edgecolor='none', alpha=alpha2, zorder=zorder+1)
+                        ax.add_artist(sac)
     
         
         
@@ -365,7 +372,7 @@ def flyby_xy_spagetti_nopost(dataset, keys=None, filename='flyby_xy_spagetti_nop
     
     
     
-def radial_trajectory_plot(dataset, filename='radial_trajectory_plot.pdf', keys=None, dataset_type='landing', nkeys=None):
+def radial_trajectory_plot(dataset, filename='radial_trajectory_plot.pdf', keys=None, dataset_type='landing', nkeys=None, highlight_trajecs=False, behavior=['landing', 'flyby'], show_saccades=True, alpha2=1, color2='gray'):
     radius = 0.009565
     
     fig = plt.figure()
@@ -374,15 +381,19 @@ def radial_trajectory_plot(dataset, filename='radial_trajectory_plot.pdf', keys=
     ax.set_xlim(0, .25)
     ax.set_autoscale_on(False)
     if keys is None:
-        keys = dataset.trajecs.keys()
+        #keys = dataset.trajecs.keys()
+        keys = fa.get_keys_for_behavior(dataset, behavior=behavior)
         
-    if dataset_type == 'landing':
-        keys_to_highlight = ['5_15269', '24_68713', '10_78813', '1_27887']
-    elif dataset_type == 'flyby':
-        keys_to_highlight = ['10_80113']
+    if highlight_trajecs:
+        if dataset_type == 'landing':
+            keys_to_highlight = ['5_15269', '24_68713', '10_78813', '1_27887']
+        elif dataset_type == 'flyby':
+            keys_to_highlight = ['10_80113']
+        else:
+            keys_to_highlight = ['32_8003']
     else:
-        keys_to_highlight = ['32_8003']
-        
+        keys_to_highlight = []
+    
     if nkeys is not None:
         if nkeys < len(keys):
             keys = keys[0:nkeys]
@@ -395,35 +406,38 @@ def radial_trajectory_plot(dataset, filename='radial_trajectory_plot.pdf', keys=
         trajec = dataset.trajecs[key]    
         r = trajec.dist_to_stim_r + radius
         
+        if trajec.behavior == 'landing':
+            initial_frame = fa.get_frame_at_distance(trajec, 0.25)
+            frames = np.arange(initial_frame, len(trajec.speed)-1).tolist()
+        else:
+            #try:
+            #    #frames = trajec.frames_below_post
+            #    frames = np.arange(0,trajec.frame_of_landing).tolist()
+            #except:
+            frames = np.arange(0,trajec.frames_of_flyby[-1]).tolist()
+        
         if key in keys_to_highlight:
             alpha = 1
             linewidth = 1
             color = 'black'
             zorder = 500
-            if trajec.behavior == 'landing':
-                initial_frame = fa.get_frame_at_distance(trajec, 0.25)
-                frames = np.arange(initial_frame, len(trajec.speed)-1).tolist()
-            else:
-                ax.plot(r[:], trajec.positions[:,2], '-', color='black', alpha=1, linewidth=0.5, zorder=zorder)
+            #ax.plot(r[:], trajec.positions[:,2], '-', color='black', alpha=1, linewidth=linewidth, zorder=zorder)
+            ax.plot(r[:], trajec.positions[:,2], '-', color=color, alpha=alpha, linewidth=linewidth, zorder=zorder)
+            ax.plot(r[frames], trajec.positions[frames,2], '-', color='blue', alpha=alpha, linewidth=linewidth, zorder=zorder)
+            print 'plotted key to highlight'
         else:
-            alpha = 0.2
-            linewidth = 0.3
-            color = 'black'
+            linewidth = 0.5
             zorder = 100
-            
-        try:
-            frames = trajec.frames_below_post
-        except:
-            frames = np.arange(0,trajec.frames_of_flyby[-1]).tolist()
-        ax.plot(r[frames], trajec.positions[frames,2], '-', color='black', alpha=alpha, linewidth=linewidth, zorder=zorder)
+            ax.plot(r[frames], trajec.positions[frames,2], '-', color=color2, alpha=alpha2, linewidth=linewidth, zorder=zorder)
         
-        if len(trajec.all_saccades) > 0:
-            for s in trajec.all_saccades:
-                if s in frames:
-                    sac_range = fa.get_saccade_range(trajec, s) 
-                    ax.plot(r[sac_range], trajec.positions[sac_range,2], '-', color='red', alpha=alpha, linewidth=linewidth, zorder=zorder+1)
-                    sac = patches.Circle( (r[sac_range[0]], trajec.positions[sac_range[0],2]), radius=0.001, facecolor='red', edgecolor='none', alpha=alpha, zorder=zorder+1)
-                    ax.add_artist(sac)
+        if show_saccades:
+            if len(trajec.all_saccades) > 0:
+                for s in trajec.all_saccades:
+                    if s in frames:
+                        sac_range = fa.get_saccade_range(trajec, s) 
+                        ax.plot(r[sac_range], trajec.positions[sac_range,2], '-', color='red', alpha=alpha2, linewidth=linewidth, zorder=zorder+1)
+                        sac = patches.Circle( (r[sac_range[0]], trajec.positions[sac_range[0],2]), radius=0.001, facecolor='red', edgecolor='none', alpha=alpha2, zorder=zorder+1)
+                        ax.add_artist(sac)
         
     
     if dataset_type != 'nopost':
@@ -432,7 +446,7 @@ def radial_trajectory_plot(dataset, filename='radial_trajectory_plot.pdf', keys=
     
     
     prep_radial_spagetti_for_saving(ax)
-    filename = 'radial_spagetti' + '.pdf'
+    filename = 'radial_spagetti' + dataset_type + '.pdf'
     fig.savefig(filename, format='pdf')
     
     

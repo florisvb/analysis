@@ -37,8 +37,8 @@ params = {'backend': 'Agg',
           'savefig.facecolor' : 'white',
           'savefig.edgecolor' : 'white',
           'figure.subplot.left': 0.2,
-          'figure.subplot.right': 0.9,
-          'figure.subplot.bottom': 0.3,
+          'figure.subplot.right': 0.8,
+          'figure.subplot.bottom': 0.25,
           'figure.subplot.top': 0.9,
           'figure.subplot.wspace': 0.0,
           'figure.subplot.hspace': 0.0,
@@ -78,10 +78,23 @@ import matplotlib.patches as patches
 import saccade_analysis
 import numpyimgproc as nim
 
+import trajectory_plots as tp
+
 REQUIRED_LENGTH = 30
 REQUIRED_DIST = 0.1
 
 
+def get_keys_for_behavior(dataset, behavior='landing'):
+    if type(behavior) is not list:
+        behavior = [behavior]
+    
+    keys = []    
+    for key in dataset.trajecs.keys():
+        if dataset.trajecs[key].behavior in behavior:
+            keys.append(key)
+            
+    return keys
+    
 
 def dist_pt_to_line(p, p0, p1):
 
@@ -109,7 +122,7 @@ def diff_windowed(arr, window):
     return diff
     
     
-def find_extrema_points(arr, window=5, sign=None):
+def find_extrema_points(arr, window=10, sign=None):
     arr_diff = diff_windowed(arr, window)
     return find_critical_points(arr_diff, sign=sign)
         
@@ -226,7 +239,7 @@ def make_behavior_dataset(dataset, filename='landing_dataset_10cm', behavior='la
                 frame_nearest_to_post = np.argmin(trajec.dist_to_stim_r)
                 print k
                 if frame_nearest_to_post > 10 and np.max(trajec.dist_to_stim_r[0:frame_nearest_to_post]) > REQUIRED_DIST:
-                    if np.max(trajec.positions[:,2]) < 0 and np.min(trajec.positions[:,2]) > -0.15:
+                    if np.min(trajec.positions[:,2]) > 0 and np.min(trajec.positions[:,2]) > -0.15:
                         if trajec.dist_to_stim_r[frame_nearest_to_post] < 0.1:
                             fs = np.arange(frame_nearest_to_post,len(trajec.speed)).tolist()
                             try:
@@ -361,10 +374,11 @@ def get_min_rrev(dataset, keys):
     return min_rrev, speed, delay, rrev
         
         
-def prep_dataset(dataset, distance=REQUIRED_DIST, do_classification=True):
+def prep_dataset(dataset, distance=REQUIRED_DIST, do_classification=False):
     
     for k,trajec in dataset.trajecs.items():
-        prep_trajectory(trajec, distance)
+        trajec.key = k
+        prep_trajectory(trajec, distance, do_classification=do_classification)
     calc_stats_at_deceleration(dataset)
             
             
@@ -376,6 +390,7 @@ def prep_trajectory(trajec, distance=REQUIRED_DIST, do_classification=True, do_c
     calc_heading(trajec)
     
     #calc_heading_cumsum(trajec)
+    normalize_dist_to_stim_r(trajec)
     trajec.frame_nearest_to_post = np.argmin(trajec.dist_to_stim_r_normed)
     frame_nearest_to_post = trajec.frame_nearest_to_post
     calc_saccades(trajec)
@@ -385,6 +400,7 @@ def prep_trajectory(trajec, distance=REQUIRED_DIST, do_classification=True, do_c
             trajec.frames = np.arange(get_frame_at_distance(trajec, distance), trajec.frame_of_landing+1).tolist()
         except:
             trajec.frames = np.arange(2, trajec.frame_of_landing+1).tolist()
+   
     if trajec.behavior == 'flyby':
         try:
             frame_at_distance = get_frame_at_distance(trajec, distance, frames=np.arange(0,frame_nearest_to_post).tolist())
@@ -425,7 +441,7 @@ def normalize_dist_to_stim_r(trajec):
         trajec.dist_to_stim_r_normed = trajec.dist_to_stim_r - trajec.dist_to_stim_r[trajec.frame_of_landing]
     else:
         trajec.dist_to_stim_r_normed = trajec.dist_to_stim_r
-def get_frame_at_distance(trajec, distance, singleframe=True, frames=None):
+def get_frame_at_distance(trajec, distance, singleframe=True, frames=None, return_none_if_no_frame=False):
     normalize_dist_to_stim_r(trajec)
     if frames is None:
         frames = np.arange(0, trajec.frame_of_landing).tolist()
@@ -439,11 +455,17 @@ def get_frame_at_distance(trajec, distance, singleframe=True, frames=None):
         else:
             return dist_crossovers+frames[0]
     else:
-        return frames[1]
+        if return_none_if_no_frame:
+            return None
+        else:
+            return frames[1]
         
-def get_speed_at_distance(trajec, distance, singleframe=False):
-    frames = get_frame_at_distance(trajec, distance, singleframe=singleframe)
-    speed = np.max(trajec.speed[frames])
+def get_speed_at_distance(trajec, distance, singleframe=False, return_none_if_no_frame=False):
+    frames = get_frame_at_distance(trajec, distance, singleframe=singleframe, return_none_if_no_frame=return_none_if_no_frame)
+    if frames is not None:
+        speed = np.max(trajec.speed[frames])
+    else:
+        speed = None
     return speed
     
 def classify_dataset(dataset):
@@ -521,6 +543,14 @@ def classify(trajec, dfar=REQUIRED_DIST, dnear=0.005):
         
         else:
             trajec.classification = 'mid'
+            
+            
+def calc_frames_of_interest(trajec):
+    
+    if trajec.behavior == 'landing':
+        trajec.frames_of_interest = np.arange(0, trajec.frame_of_landing)
+    else:
+        trajec.frames_of_interest = np.arange(0, trajec.frame_nearest_to_post + 10)
             
 def calc_frame_of_landing (trajec, threshold = 0.0005):
         # search forward in time until we get below threshold, then check to make sure fly stays below threshold for three more frames
@@ -687,19 +717,18 @@ def calc_tortuosity_btwn_saccades(trajec, s1, s2):
     f2 = get_saccade_range(trajec, s2)[0]
     return calc_tortuosity_for_frame_range(trajec, [f1,f2])
     
-def calc_saccades(trajec, magnitude=351):
+def calc_saccades(trajec, magnitude=200):
     raw_saccades = find_extrema_points(trajec.heading_smooth_diff)
-    
-        
     
     #windowed_heading_diff = diff_windowed(trajec.heading, 5)
     
     angular_vel = np.abs( trajec.heading_smooth_diff )*100.*180/np.pi
+    angular_vel_over_speed = angular_vel / trajec.speed
     
     trajec.saccades = []
     trajec.all_saccades = []
     for saccade in raw_saccades:
-        if trajec.speed[saccade-10] > 0.01:
+        if trajec.speed[saccade-10] > 0.005:
             #if np.abs(windowed_heading_diff[saccade]) > magnitude:
             
             if angular_vel[saccade] > magnitude:
@@ -708,18 +737,33 @@ def calc_saccades(trajec, magnitude=351):
                     sac_range = get_saccade_range(trajec, saccade)
                     if len(sac_range) < 3:
                         continue
+                        
+                    dupe = False
                     for s in trajec.all_saccades:
                         s_range = get_saccade_range(trajec, s)
                         if saccade in s_range:
-                            continue
-                                    
-                    if trajec.behavior == 'flyby':
-                        if saccade > trajec.frames_of_flyby[0] and saccade < trajec.frame_nearest_to_post:
-                            trajec.saccades.append(saccade)
-                    else:
-                        if saccade in trajec.frames:
-                            trajec.saccades.append(saccade)
-                    trajec.all_saccades.append(saccade)
+                            print 'hi'
+                            dupe = True
+                         
+                    if dupe is False:   
+                        trajec.all_saccades.append(saccade)
+                                   
+                                   
+    for saccade in trajec.all_saccades:
+         
+        if trajec.behavior == 'flyby':
+            if saccade > trajec.frames_of_flyby[0] and saccade < trajec.frame_nearest_to_post+15:
+                trajec.saccades.append(saccade)
+        else:
+            if saccade in trajec.frames:
+                trajec.saccades.append(saccade)
+                    
+                    
+
+        
+
+        
+                    
                             
 def calc_wv_ratio_cumsum(trajec, plot=False): 
 
@@ -1000,8 +1044,11 @@ def make_dataset_from_movie_dataset(movie_dataset):
                 excepted += 1
         if tmp is not None:
             if movie.behavior == 'landing':
-                trajec = make_trajec_from_movie(movie)
-                dataset.trajecs.setdefault(k, trajec)
+                try:
+                    trajec = make_trajec_from_movie(movie)
+                    dataset.trajecs.setdefault(k, trajec)
+                except:
+                    excepted += 1
     print 'excepted movies: ', excepted
     return dataset     
         
@@ -1239,6 +1286,7 @@ def calc_stats_at_deceleration(dataset, keys=None, time_offset=0, return_vals=Fa
     expansion = []
     speed = []
     angle = []
+    post_type = []
     distance = []
     trajectories = []
     radius = []
@@ -1264,6 +1312,7 @@ def calc_stats_at_deceleration(dataset, keys=None, time_offset=0, return_vals=Fa
                 expansion.append(expansion_at_deceleration)
                 speed.append(speed_at_deceleration)
                 angle.append(angle_at_deceleration)
+                post_type.append(trajec.post_type)
                 distance.append(distance_at_deceleration)
                 trajectories.append(key)
                 radius.append(radius_at_deceleration)
@@ -1280,6 +1329,7 @@ def calc_stats_at_deceleration(dataset, keys=None, time_offset=0, return_vals=Fa
         
     dataset.speed_at_deceleration = speed
     dataset.angle_at_deceleration = angle
+    dataset.post_type_at_deceleration = post_type
     dataset.expansion_at_deceleration = expansion
     dataset.trajectories_at_deceleration = trajectories
     dataset.distance_at_deceleration = distance
@@ -2343,11 +2393,13 @@ def deceleration_saccade_angle_flyby(dataset, keys=None, plot=True, filename=Non
     return
     
     
-def leg_extension_angle_histogram(movie_dataset, plot=False, behavior='landing'):
+def leg_extension_angle_histogram(movie_dataset, plot=False, behavior='landing', post_type_color=False):
     keys = movie_dataset.movies.keys()
     
     angle_at_leg_extension = []
     speed_at_leg_extension = []
+    time_to_landing = []
+    post_type = []
     n = 0
     for movieid in keys:
         movie = movie_dataset.movies[movieid]
@@ -2363,13 +2415,24 @@ def leg_extension_angle_histogram(movie_dataset, plot=False, behavior='landing')
                 except:
                     tmp = False
                 
-                if tmp: #movie.trajec.classification == 'straight':
+                if 'crash' not in movie.subbehavior and tmp and legextensionframe < movie.landingframe_relative: #tmp: #movie.trajec.classification == 'straight':
                     angle_at_leg_extension.append(movie.scaled.angle_subtended_by_post[legextensionframe][0])
                     speed_at_leg_extension.append(movie.scaled.speed[legextensionframe])
+                    time_to_landing.append(movie.timestamps[movie.landingframe_relative] - movie.timestamps[legextensionframe])
+                    post_type.append(movie.posttype)
                     n += 1
-              
+        
     angle_at_leg_extension = np.array(angle_at_leg_extension)
     speed_at_leg_extension = np.array(speed_at_leg_extension)
+    time_to_landing = np.array(time_to_landing)
+    
+    black_post = []
+    checkered_post = []
+    for i, p in enumerate(post_type):
+        if 'black' in p:
+            black_post.append(i)
+        if 'checkered' in p:
+            checkered_post.append(i)
     
     data, bins = np.histogram( np.log(angle_at_leg_extension), bins=16, normed=True)
     xvals = np.diff(bins) + bins[0:-1]
@@ -2380,24 +2443,27 @@ def leg_extension_angle_histogram(movie_dataset, plot=False, behavior='landing')
     print 'N = ', n
     print 'mean angle: ', np.mean(angle_at_leg_extension)*180/np.pi
     
-    if plot:
+    if plot and post_type_color is False:
         fig = plt.figure()
         fig.set_facecolor('white')
         ax = fig.add_subplot(111) 
-        ax.hist( np.log(angle_at_leg_extension), bins=bins, normed=True, facecolor='red', alpha=0.1, edgecolor='red')
-        ax.plot( xvals, data_filtered, color='red' )     
-        ax.plot( np.log(angle_at_leg_extension), speed_at_leg_extension, '.', color='red')
+        #ax.hist( np.log(angle_at_leg_extension), bins=bins, normed=True, facecolor='green', alpha=0.1, edgecolor='green')
+        bins, hists, hist_std, curves = floris.histogram(ax, [np.log(angle_at_leg_extension)], bins=bins, colors='green', bin_width_ratio=0.9, edgecolor='none', bar_alpha=0.2, curve_fill_alpha=0, curve_line_alpha=0.8, return_vals=True, normed_occurences='total', bootstrap_std=True)
+        
+        
+        #ax.plot( xvals, data_filtered, color='green' )     
+        ax.plot( np.log(angle_at_leg_extension), speed_at_leg_extension, '.', color='green')
         
         #fit = np.polyfit( np.log(angle_at_leg_extension), speed_at_leg_extension, 1)
         print np.log(angle_at_leg_extension).shape, speed_at_leg_extension.shape
         fit, variance, intercept_confidence_interval, slope_confidence_interval, Rsq = floris.linear_fit_type2(np.log(angle_at_leg_extension), speed_at_leg_extension, full_output=True)
         x = np.linspace(np.min(np.log(angle_at_leg_extension)), np.max(np.log(angle_at_leg_extension)), 100)
         y = np.polyval(fit, x)
-        ax.plot(x,y,color='red')
+        ax.plot(x,y,color='green')
         
         yplus = np.polyval(fit, x+np.sqrt(variance))+np.sqrt(variance)
         yminus = np.polyval(fit, x-np.sqrt(variance))-np.sqrt(variance)
-        ax.fill_between(x, yplus, yminus, color='red', linewidth=0, alpha=0.2)
+        ax.fill_between(x, yplus, yminus, color='green', linewidth=0, alpha=0.2)
     
         slope = str(fit[0])[0:5]
         intercept = str(fit[1])[0:5]
@@ -2409,8 +2475,55 @@ def leg_extension_angle_histogram(movie_dataset, plot=False, behavior='landing')
         fix_angle_log_spine(ax)
         plt.show()
         string = 'N=' + str(n)
-        ax.text( -2, 0.8, string, color='red')
+        ax.text( -2, 0.8, string, color='green')
         fig.savefig('leg_ext_histogram.pdf', format='pdf')
+        
+    if plot and post_type_color is True:
+        fig = plt.figure()
+        fig.set_facecolor('white')
+        ax = fig.add_subplot(111) 
+        #ax.hist( np.log(angle_at_leg_extension), bins=bins, normed=True, facecolor='green', alpha=0.1, edgecolor='green')
+        bins, hists, hist_std, curves = floris.histogram(ax, [np.log(angle_at_leg_extension[black_post]), np.log(angle_at_leg_extension[checkered_post])], bins=bins, colors=['black', 'teal'], bin_width_ratio=0.9, edgecolor='none', bar_alpha=0.2, curve_fill_alpha=0, curve_line_alpha=0.8, return_vals=True, normed_occurences=True, bootstrap_std=True)
+        
+        #ax.plot( xvals, data_filtered, color='green' )     
+        ax.plot( np.log(angle_at_leg_extension[black_post]), speed_at_leg_extension[black_post], '.', color='black')
+        ax.plot( np.log(angle_at_leg_extension[checkered_post]), speed_at_leg_extension[checkered_post], '.', color='teal')
+        
+        
+        fix_angle_log_spine(ax)
+        plt.show()
+        fig.savefig('leg_ext_histogram_post_types.pdf', format='pdf')
+        
+    ####  time to touchdown after leg extension
+    time_to_landing *= 1000
+    print 'n for touchdowns = ', len(time_to_landing)
+    print 'n > 0 = ', len(np.where(time_to_landing > 0)[0].tolist())
+    fig = plt.figure()
+    ax = fig.add_subplot(111)
+    bins, hists, curves = floris.histogram(ax, [np.log(time_to_landing)], bins=15, colors='black', bin_width_ratio=0.9, edgecolor='none', bar_alpha=0.8, curve_fill_alpha=0, curve_line_alpha=0, return_vals=True, show_smoothed=False)
+    ax.set_ylim(0,np.max(hists))
+    ax.set_xlim(0,6)
+    ax.set_autoscale_on(False)
+    adjust_spines(ax, ['left', 'bottom'])
+    
+    xticks = ax.get_xticks()
+    xticks_exp = np.exp(xticks)
+    
+    xtick_labels = [str(x) for x in xticks_exp]
+    for i, s in enumerate(xtick_labels):
+        tmp = s.split('.')
+        xtick_labels[i] = tmp[0]
+    
+    #ax.set_xticks(xticks_log)
+    ax.set_xticklabels(xtick_labels)
+    
+    ax.set_xlabel('Time to touchdown after leg extension, ms')
+    ax.set_ylabel('Occurences')
+    filename = 'time_to_touchdown_at_leg_ext.pdf'
+    fig.savefig(filename, format='pdf')
+    print 'mean time to touchdown after leg ext: ', np.mean(time_to_landing), np.std(time_to_landing)
+    print 'n flies that stick out legs less than 50 ms away: ', len(np.where(time_to_landing<100)[0].tolist()) / float( len(time_to_landing) )
+    
     return angle_at_leg_extension, bins, data_filtered, xvals
     
     
@@ -2420,7 +2533,7 @@ def summary_figure(dataset_landing, dataset_flyby, movie_dataset):
     ax = fig.add_subplot(111)
     
     # landing stuff
-    x, y, yminus, yplus = get_angle_vs_speed_curve(dataset_landing, plot=False)
+    fit, Rsq, x, y, yminus, yplus = get_angle_vs_speed_curve(dataset_landing, plot=False)
     ax.plot( x, y, color='blue')
     
     angle_at_leg_extension, bins, data_filtered, xvals = leg_extension_angle_histogram(movie_dataset, plot=False)
@@ -2459,7 +2572,7 @@ def get_angle_vs_speed_curve(dataset, plot=False, plot_sample_trajecs=False, pos
     fit, variance, intercept_confidence_interval, slope_confidence_interval, Rsq  = floris.linear_fit_type2(np.log(dataset.angle_at_deceleration[indices]), dataset.speed_at_deceleration[indices], full_output=True)
     print fit
     print 'variance: ', variance, np.sqrt(variance)
-    x = np.linspace(np.min(np.log(dataset.angle_at_deceleration)), np.max(np.log(dataset.angle_at_deceleration)), 100)
+    x = np.linspace((np.log(5*np.pi/180.)), np.max(np.log(dataset.angle_at_deceleration)), 100)
     y = np.polyval(fit, x)
     yplus = y+np.sqrt(variance)
     yminus = y-np.sqrt(variance)
@@ -2477,11 +2590,13 @@ def get_angle_vs_speed_curve(dataset, plot=False, plot_sample_trajecs=False, pos
         fig = plt.figure()
         fig.set_facecolor('white')
         ax = fig.add_subplot(111)
-        ax.hist( np.log(dataset.angle_at_deceleration[indices]), bins=bins, normed=True, facecolor='blue', alpha=0.1, edgecolor='blue')
-        ax.plot( xvals, data_filtered, color='blue' )    
+        #ax.hist( np.log(dataset.angle_at_deceleration[indices]), bins=bins, normed=True, facecolor='purple', alpha=0.1, edgecolor='purple')
+        #ax.plot( xvals, data_filtered, color='purple' )    
         
-        ax.plot( np.log(dataset.angle_at_deceleration[indices]), dataset.speed_at_deceleration[indices], '.', color='blue', alpha=0.8)
-        ax.plot(x,y, color='blue', linewidth=1)
+        bins, hists, hist_std, curves = floris.histogram(ax, [np.log(dataset.angle_at_deceleration[indices])], bins=bins, colors='purple', bin_width_ratio=0.9, edgecolor='none', bar_alpha=0.2, curve_fill_alpha=0, curve_line_alpha=0.8, return_vals=True, normed_occurences=True, bootstrap_std=True)
+        
+        ax.plot( np.log(dataset.angle_at_deceleration[indices]), dataset.speed_at_deceleration[indices], '.', color='purple', alpha=0.8)
+        ax.plot(x,y, color='purple', linewidth=1)
         
         if tti is not None:
             #tti = 0.15
@@ -2490,7 +2605,7 @@ def get_angle_vs_speed_curve(dataset, plot=False, plot_sample_trajecs=False, pos
             s = exp*0.009565/(2.*np.tan(a/2.)*np.sin(a/2.))
             ax.plot(np.log(a),s, color='red', linewidth=1)
         
-        ax.fill_between(x, yplus, yminus, color='blue', linewidth=0, alpha=0.2)
+        ax.fill_between(x, yplus, yminus, color='purple', linewidth=0, alpha=0.3)
         #ax.plot(x+np.sqrt(variance), y+np.sqrt(variance), ':')
         
         '''
@@ -2519,7 +2634,7 @@ def get_angle_vs_speed_curve(dataset, plot=False, plot_sample_trajecs=False, pos
         
         fix_angle_log_spine(ax, histograms=False)    
         string = 'N=' + str(len(indices))
-        ax.text( 10.*np.pi/180., 0.8, string, color='blue')
+        ax.text( 10.*np.pi/180., 0.8, string, color='purple')
         if filename is not None:
             fig.savefig(filename, format='pdf')
     
@@ -2976,6 +3091,7 @@ def fix_angle_log_spine(ax, set_y=True, histograms=True):
         yticklabels = ['0.0', '0.2', '0.4', '0.6', '0.8', '1.0']
         probax = ax.twinx()
         adjust_spines(probax, ['right'])
+        probax.set_ylim(0,1.2)
         probax.set_yticklabels(yticklabels, fontsize=9)
         probax.set_ylabel('probability, normalized', fontsize=9)
     deg_ticks = np.array([5, 10, 30, 60, 90, 180])
@@ -2990,7 +3106,7 @@ def fix_angle_log_spine(ax, set_y=True, histograms=True):
     
     ## plot paramters    
     if set_y:
-        ax.set_ylim([0,1.])
+        ax.set_ylim([0,1.2])
     ax.set_xlim(rad_ticks_log[0], rad_ticks_log[-1])
     
     if histograms:
@@ -3032,7 +3148,7 @@ def adjust_spines(ax,spines, color={}, spine_locations={}, smart_bounds=False):
                 c = 'black'
             
             spine.set_color(c)
-            #spine.set_smart_bounds(True)
+            #spine.set_smart_bounds(smart_bounds)
             if loc == 'bottom' and smart_bounds:
                 pass#spine.set_smart_bounds(True)
         else:
@@ -3059,11 +3175,16 @@ def adjust_spines(ax,spines, color={}, spine_locations={}, smart_bounds=False):
 
     
     
-def calc_func(dataset, func):
+def calc_func(dataset, func, arg1=None):
     
     for k, trajec in dataset.trajecs.items():
-        func(trajec)
-        
+    
+        if arg1 is None:
+            func(trajec)
+        else:
+            func(trajec, arg1)
+            
+            
 def deceleration_plot(dataset, keys=None):    
     
     if keys is None:
@@ -3126,31 +3247,6 @@ def landing_spagetti_plots(dataset, keys=None):
     fix_angle_log_spine(ax, histograms=False)
     fig.savefig('landing_spagetti.pdf', format='pdf')
     
-def ANCOVA_for_deceleration(dataset):
-    
-    black_decel_speed = []
-    black_decel_angle = []
-    checkered_decel_speed = []
-    checkered_decel_angle = []
-    
-    keys = dataset.trajecs.keys()
-
-    for key in keys:
-        trajec = dataset.trajecs[key]
-        if 'black' in trajec.post_type:
-            black_decel_speed.append(trajec.speed_at_deceleration)
-            black_decel_angle.append(trajec.angle_at_deceleration)
-        elif 'checkered' in trajec.post_type:
-            checkered_decel_speed.append(trajec.speed_at_deceleration)
-            checkered_decel_angle.append(trajec.angle_at_deceleration)
-
-    black_decel_speed = np.array(black_decel_speed) 
-    black_decel_angle = np.array(black_decel_angle)
-    checkered_decel_speed = np.array(checkered_decel_speed)
-    checkered_decel_angle = np.array(checkered_decel_angle)
-    groups = [[np.log(black_decel_angle), black_decel_speed], [np.log(checkered_decel_angle), checkered_decel_speed]]
-
-    floris.ANCOVA(groups)
     
 def deceleration_plots_with_traces(dataset, post_type=['checkered', 'checkered_angled', 'black', 'black_angled'], keys=None, show_traces=True, color_code_post_type=True, show_examples=True):
     fig = plt.figure()
@@ -3412,8 +3508,9 @@ def get_saccade_range(trajec, saccade_frame=None, plot=False):
         first_frame = np.max([0, saccade_frame-15])
         last_frame = np.min([saccade_frame+15, len(trajec.speed)-1])
         frames = np.arange(first_frame, last_frame).tolist()
-        angular_vel = np.abs( floris.diffa( trajec.heading[frames] ) )*100.*180/np.pi
-        saccade_frames_raw = angular_vel > 350
+        angular_vel = np.abs( trajec.heading_smooth_diff[frames] )*100.*180/np.pi
+        angular_vel_over_speed = angular_vel / trajec.speed[frames]
+        saccade_frames_raw = angular_vel_over_speed > 200
         
         saccade_frames_blob = nim.find_blob_nearest_to_point(saccade_frames_raw, saccade_frame-first_frame)
         saccade_frames = np.where(saccade_frames_blob == 1)[0].tolist()
@@ -3430,7 +3527,7 @@ def get_saccade_range(trajec, saccade_frame=None, plot=False):
             
         saccade_range = (np.array(saccade_frames)+frames[0]).tolist()
         if len(saccade_range) < 2:
-            return None 
+            return [saccade_frame, saccade_frame+1] 
         else:
             return saccade_range
         

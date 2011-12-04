@@ -125,21 +125,21 @@ def crash_analysis(dataset, dataset_landing, keys=None):
         trajec = dataset.trajecs[key]
         ftp = np.arange(trajec.frames[0], trajec.frames[-1]).tolist()
         
-        alpha = 0.1
-        color = 'blue'
+        color = 'gray'
+        dotcolor = 'blue'
         if key == '20101111_C001H001S0045':
-            alpha = 1
             color = 'black'
+            dotcolor = 'purple'
             
         if trajec.angle_at_deceleration*180/np.pi > 90:
             print key
         
-        ax.plot( np.log(trajec.angle_subtended_by_post[ftp]), trajec.speed[ftp], color='black', linewidth=0.5, alpha=alpha)
-        ax.plot( np.log(trajec.angle_at_deceleration), trajec.speed_at_deceleration, '.', color=color, alpha=0.8)
+        ax.plot( np.log(trajec.angle_subtended_by_post[ftp]), trajec.speed[ftp], color=color, linewidth=0.5, alpha=1)
+        ax.plot( np.log(trajec.angle_at_deceleration), trajec.speed_at_deceleration, '.', color=dotcolor, alpha=1)
         
     fit, Rsq, x, y, yminus, yplus = fa.get_angle_vs_speed_curve(dataset_landing, plot=False)
-    ax.plot( x, y, color='blue')
-    ax.fill_between(x, yplus, yminus, color='blue', linewidth=0, alpha=0.2)
+    ax.plot( x, y, color='purple')
+    ax.fill_between(x, yplus, yminus, color='purple', linewidth=0, alpha=0.2)
     
     fa.fix_angle_log_spine(ax, histograms=False)
     fig.savefig('crash_spagetti.pdf', format='pdf')
@@ -152,23 +152,30 @@ def landing_analysis_for_crash_comparison(dataset, keys=None):
     if keys is None:
         classified_keys = fa.get_classified_keys(dataset)
         keys = classified_keys['straight']
-        #keys = dataset.trajecs.keys()
+        keys = dataset.trajecs.keys()
         
     for key in keys:
         trajec = dataset.trajecs[key]
         ftp = np.arange(trajec.frames[0]-25, trajec.frames[-1]).tolist()
         ax.plot( np.log(trajec.angle_subtended_by_post[ftp]), trajec.speed[ftp], color='black', linewidth=0.5, alpha=0.05)
 
-    keys_to_plot = ['2_29065', '2_31060', '8_10323', '6_715']
-    for key in keys_to_plot:
+    keys_to_highlight = ['2_29065', '2_31060', '8_10323', '6_715']
+    for key in keys:
+    
+        color = 'gray'
+        dotcolor = 'blue'
+        if key in keys_to_highlight:
+            color = 'black'
+            dotcolor = 'purple'
+    
         trajec = dataset.trajecs[key]
         ftp = np.arange(trajec.frames[0]-25, trajec.frames[-1]).tolist()
-        ax.plot( np.log(trajec.angle_subtended_by_post[ftp]), trajec.speed[ftp], color='black', linewidth=0.5)
-        ax.plot( np.log(trajec.angle_at_deceleration), trajec.speed_at_deceleration, '.', color='black', alpha=1)
+        ax.plot( np.log(trajec.angle_subtended_by_post[ftp]), trajec.speed[ftp], color=color, linewidth=0.5, alpha=1)
+        ax.plot( np.log(trajec.angle_at_deceleration), trajec.speed_at_deceleration, '.', color=dotcolor, alpha=1)
         
     fit, Rsq, x, y, yminus, yplus = fa.get_angle_vs_speed_curve(dataset, plot=False)
-    ax.plot( x, y, color='blue')
-    ax.fill_between(x, yplus, yminus, color='blue', linewidth=0, alpha=0.2)
+    ax.plot( x, y, color='purple')
+    ax.fill_between(x, yplus, yminus, color='purple', linewidth=0, alpha=0.2)
         
     fa.fix_angle_log_spine(ax, histograms=False)
     fig.savefig('landing_for_crash_comparison.pdf', format='pdf')

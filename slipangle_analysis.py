@@ -56,7 +56,7 @@ import flydra_analysis as fa
 import sa1_analysis as sa1
 import numpy as np
 
-
+import floris
 
 
 
@@ -97,7 +97,7 @@ def get_slipangles(movie, behavior='straight'):
     elif behavior == 'saccade':
         frames = saccade_frames
     elif behavior == 'landing':
-        if 
+        frames = landing_frames
     
     slipangles = []
     for f in frames:
@@ -131,15 +131,17 @@ def get_slipangles_for_movie_dataset(movie_dataset):
     fig = plt.figure()
     ax = fig.add_subplot(111)
     bins = np.linspace(-90, 90, 20, endpoint=True)
-    ax.hist(slipangles_in_degrees, bins=bins, edgecolor='none', facecolor='purple')
+    #ax.hist(slipangles_in_degrees, bins=bins, edgecolor='none', facecolor='purple')
+    bins, hists, curves = floris.histogram(ax, [slipangles_in_degrees], bins=bins, colors='black', bin_width_ratio=0.9, edgecolor='none', bar_alpha=0.8, curve_fill_alpha=0, curve_line_alpha=0, return_vals=True)
 
     ax.set_xlim(-90,90)
+    ax.set_ylim(0, 250)
     fa.adjust_spines(ax, ['left', 'bottom'])
     xticks = [-90, -45, 0, 45, 90]
     ax.set_xticks(xticks)
 
-    ax.set_xlabel('slipangle, deg')
-    ax.set_ylabel('occurences')
+    ax.set_xlabel('Slip angle')
+    ax.set_ylabel('Occurences')
     N = len(slipangles)
     n = len(keys)
     string = 'N='+str(N)+'\nn='+str(n)
