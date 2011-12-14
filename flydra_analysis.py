@@ -80,8 +80,23 @@ import numpyimgproc as nim
 
 import trajectory_plots as tp
 
+
+import floris_math
+import kalman_math
+import trajectory_analysis_specific as tas
+
 REQUIRED_LENGTH = 30
 REQUIRED_DIST = 0.1
+
+
+def remove_crashes_from_flyby_dataset(dataset_flyby, remove=False):
+    for k, trajec in dataset_flyby.trajecs.items():
+        if np.min(trajec.dist_to_stim_r) < 0:    
+            print k
+            if remove:
+                del (dataset_flyby.trajecs[k])
+
+
 
 
 def get_keys_for_behavior(dataset, behavior='landing'):
@@ -239,7 +254,7 @@ def make_behavior_dataset(dataset, filename='landing_dataset_10cm', behavior='la
                 frame_nearest_to_post = np.argmin(trajec.dist_to_stim_r)
                 print k
                 if frame_nearest_to_post > 10 and np.max(trajec.dist_to_stim_r[0:frame_nearest_to_post]) > REQUIRED_DIST:
-                    if np.min(trajec.positions[:,2]) > 0 and np.min(trajec.positions[:,2]) > -0.15:
+                    if np.min(trajec.positions[:,2]) > -0.15:
                         if trajec.dist_to_stim_r[frame_nearest_to_post] < 0.1:
                             fs = np.arange(frame_nearest_to_post,len(trajec.speed)).tolist()
                             try:
@@ -374,15 +389,15 @@ def get_min_rrev(dataset, keys):
     return min_rrev, speed, delay, rrev
         
         
-def prep_dataset(dataset, distance=REQUIRED_DIST, do_classification=False):
+def prep_dataset(dataset, distance=REQUIRED_DIST, do_classification=False, do_calc_frame_of_landing=False):
     
     for k,trajec in dataset.trajecs.items():
         trajec.key = k
-        prep_trajectory(trajec, distance, do_classification=do_classification)
+        prep_trajectory(trajec, distance, do_classification=do_classification, do_calc_frame_of_landing=do_calc_frame_of_landing)
     calc_stats_at_deceleration(dataset)
             
             
-def prep_trajectory(trajec, distance=REQUIRED_DIST, do_classification=True, do_calc_frame_of_landing=True):
+def prep_trajectory(trajec, distance=REQUIRED_DIST, do_classification=True, do_calc_frame_of_landing=False):
     print trajec.key
     if do_calc_frame_of_landing:
         calc_frame_of_landing(trajec)
@@ -393,7 +408,8 @@ def prep_trajectory(trajec, distance=REQUIRED_DIST, do_classification=True, do_c
     normalize_dist_to_stim_r(trajec)
     trajec.frame_nearest_to_post = np.argmin(trajec.dist_to_stim_r_normed)
     frame_nearest_to_post = trajec.frame_nearest_to_post
-    calc_saccades(trajec)
+    #calc_saccades(trajec)
+    saccade_analysis.calc_saccades2(trajec)
     
     if trajec.behavior == 'landing':
         try:
@@ -418,13 +434,13 @@ def prep_trajectory(trajec, distance=REQUIRED_DIST, do_classification=True, do_c
     ##calc_wv_ratio_cumsum(trajec)
     #calc_dist_travelled(trajec)
     #calc_dist_travelled_in_window(trajec, window=0.1, window_units='sec')
-    sa1.calc_post_dynamics_for_flydra_trajectory(trajec)
+    tas.calc_post_dynamics_for_flydra_trajectory(trajec)
     trajec.expansion = floris.diffa(trajec.angle_subtended_by_post)*trajec.fps
     if do_classification:
         classify(trajec, dfar=distance, dnear=0.005)
     
-    if trajec.behavior == 'landing':
-        calc_deceleration_initiation(trajec, plot=False)
+    #if trajec.behavior == 'landing':
+    calc_deceleration_initiation(trajec, plot=False)
 
 def prep_movie_trajec(movieinfo):
     trajec = movieinfo.trajec
@@ -612,7 +628,7 @@ def calc_heading(trajec):
     init_vel = data[0]
     initx = np.array([0, init_vel], dtype=np.float)
     initv = 0*np.eye(ss)
-    xsmooth,Vsmooth = sa1.kalman_smoother(data, F, H, Q, R, initx, initv, plot=False)
+    xsmooth,Vsmooth = kalman_math.kalman_smoother(data, F, H, Q, R, initx, initv, plot=False)
     ## 
     
     #plt.plot(xsmooth[:,1])
@@ -623,7 +639,7 @@ def calc_heading(trajec):
     #plt.plot(trajec.dist_to_stim_r)
     
     
-    trajec.heading = sa1.remove_angular_rollover(np.arctan2(trajec.velocities[:,1], trajec.velocities[:,0]), 3)
+    trajec.heading = floris_math.remove_angular_rollover(np.arctan2(trajec.velocities[:,1], trajec.velocities[:,0]), 3)
     ## kalman
     data = trajec.heading.reshape([len(trajec.heading),1])
     ss = 3 # state size
@@ -641,7 +657,7 @@ def calc_heading(trajec):
     R = 1*np.eye(os) # observation noise
     initx = np.array([data[0,0], data[1,0]-data[0,0], 0], dtype=np.float)
     initv = 0*np.eye(ss)
-    xsmooth,Vsmooth = sa1.kalman_smoother(data, F, H, Q, R, initx, initv, plot=False)
+    xsmooth,Vsmooth = kalman_math.kalman_smoother(data, F, H, Q, R, initx, initv, plot=False)
     ## 
     trajec.heading_smooth = xsmooth[:,0]
     trajec.heading_smooth_diff = xsmooth[:,1]
@@ -697,7 +713,7 @@ def calc_dist_travelled(trajec):
         print trajec.frames_of_flyby
         print trajec.saccades
         print frames[0], frames[-1]
-        vt = sa1.norm_array(trajec.positions[frames, 0:2] - trajec.positions[ frames[0]-1:frames[-1], 0:2])  
+        vt = floris_math.norm_array(trajec.positions[frames, 0:2] - trajec.positions[ frames[0]-1:frames[-1], 0:2])  
         trajec.dist_travelled = cumsum(vt)
         vt -= vt[0]
         euclidean_dist_travelled = np.linalg.norm( trajec.positions[frames[0], 0:2] - trajec.positions[frames[-1], 0:2] )
@@ -706,7 +722,7 @@ def calc_dist_travelled(trajec):
         
 def calc_tortuosity_for_frame_range(trajec, framerange):
     frames = np.arange(framerange[0], framerange[-1]).tolist()
-    vt = sa1.norm_array(trajec.positions[frames, 0:2] - trajec.positions[ frames[0]-1:frames[-1], 0:2])  
+    vt = floris_math.norm_array(trajec.positions[frames, 0:2] - trajec.positions[ frames[0]-1:frames[-1], 0:2])  
     dist_travelled = cumsum(vt)
     vt -= vt[0]
     euclidean_dist_travelled = np.linalg.norm( trajec.positions[frames[0], 0:2] - trajec.positions[frames[-1], 0:2] )
@@ -1068,16 +1084,7 @@ def count_crashes(dataset):
 def calc_deceleration_initiation(trajec, plot=False):
     trajec.frame_at_deceleration = None
 
-    x = trajec.dist_to_stim_r_normed[0:trajec.frame_of_landing]
-    #a = trajec.accel_1d[0:trajec.frame_of_landing]
-    t = trajec.time_to_impact[0:trajec.frame_of_landing]
-    s = trajec.speed[0:trajec.frame_of_landing]
-    ang = trajec.angle_subtended_by_post[0:trajec.frame_of_landing]
     
-    print trajec.frame_of_landing
-    print s.shape
-    print ang.shape
-    a = floris.diffa(s) / np.abs(floris.diffa(ang))
     
     '''
     steady_state_acceleration = a[np.where( (t<0.4)*(t>0.2) )[0].tolist()]
@@ -1089,6 +1096,17 @@ def calc_deceleration_initiation(trajec, plot=False):
     '''
     try:
         if trajec.behavior == 'landing':
+            x = trajec.dist_to_stim_r_normed[0:trajec.frame_of_landing]
+            #a = trajec.accel_1d[0:trajec.frame_of_landing]
+            t = trajec.time_to_impact[0:trajec.frame_of_landing]
+            s = trajec.speed[0:trajec.frame_of_landing]
+            ang = trajec.angle_subtended_by_post[0:trajec.frame_of_landing]
+            
+            print trajec.frame_of_landing
+            print s.shape
+            print ang.shape
+            a = floris.diffa(s) / np.abs(floris.diffa(ang))
+    
             f = np.where( floris.diffa( np.sign(a) ) < 0 )[0][-1]
             trajec.frame_at_deceleration = f
             frames = np.arange(trajec.frame_at_deceleration-1,trajec.frame_at_deceleration+1).tolist()
@@ -1099,18 +1117,19 @@ def calc_deceleration_initiation(trajec, plot=False):
             trajec.speed_at_deceleration = np.interp(trajec.time_at_deceleration, trajec.epoch_time[frames], trajec.speed[frames])
             trajec.dist_at_deceleration = np.interp(trajec.time_at_deceleration, trajec.epoch_time[frames], trajec.dist_to_stim_r[frames])
         elif trajec.behavior == 'flyby':
+            x = trajec.dist_to_stim_r_normed[0:trajec.frame_nearest_to_post]
+            #a = trajec.accel_1d[0:trajec.frame_of_landing]
+            t = trajec.time_to_impact[0:trajec.frame_nearest_to_post]
+            s = trajec.speed[0:trajec.frame_nearest_to_post]
+            ang = trajec.angle_subtended_by_post[0:trajec.frame_nearest_to_post]
             
-            if len(trajec.saccades) > 0:
-                sf = get_saccade_range(trajec, trajec.saccades[-1])
-                #frame_of_interest = np.min([trajec.frame_nearest_to_post, sf[0]])
-                frame_of_interest = trajec.frame_nearest_to_post
-            else:
-                frame_of_interest = trajec.frame_nearest_to_post
-            indices = np.arange(trajec.frames_of_flyby[0],frame_of_interest).tolist()
-            print 'INDICES: ', indices
-            f = np.where( floris.diffa( np.sign(a[indices]) ) < 0 )[0][-1]
-            print 'DECEL: ', f
-            trajec.frame_at_deceleration = f + indices[0]
+            print trajec.frame_nearest_to_post
+            print s.shape
+            print ang.shape
+            a = floris.diffa(s) / np.abs(floris.diffa(ang))
+    
+            f = np.where( floris.diffa( np.sign(a) ) < 0 )[0][-1]
+            trajec.frame_at_deceleration = f
             frames = np.arange(trajec.frame_at_deceleration-1,trajec.frame_at_deceleration+1).tolist()
             # interpolate to get best estimate of time
             trajec.time_at_deceleration = np.interp(0, a[frames], trajec.epoch_time[frames]) 
@@ -1118,7 +1137,6 @@ def calc_deceleration_initiation(trajec, plot=False):
             trajec.expansion_at_deceleration = np.interp(trajec.time_at_deceleration, trajec.epoch_time[frames], trajec.expansion[frames])
             trajec.speed_at_deceleration = np.interp(trajec.time_at_deceleration, trajec.epoch_time[frames], trajec.speed[frames])
             trajec.dist_at_deceleration = np.interp(trajec.time_at_deceleration, trajec.epoch_time[frames], trajec.dist_to_stim_r[frames])
-            print 'decel calculated for flyby'            
             
         if plot:
             #plt.plot(trajec.epoch_time[0:trajec.frame_of_landing], a)
@@ -1600,9 +1618,9 @@ def simulate_rrev_for_fake_trajectory(dataset, pos0, vel0, time, behavior='landi
             
             
     trajec.behavior = behavior
-    trajec.speed = sa1.norm_array(trajec.velocities)
+    trajec.speed = floris_math.norm_array(trajec.velocities)
     trajec.calc_accel_1d()
-    trajec.dist_to_stim_r = sa1.norm_array(trajec.positions[:,0:2]) - radius
+    trajec.dist_to_stim_r = floris_math.norm_array(trajec.positions[:,0:2]) - radius
     
     prep_trajectory(trajec)
     coeff = dataset.rrev_vs_speed_fit*trajec.speed
