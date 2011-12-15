@@ -1,5 +1,9 @@
-import flydra.a2.core_analysis as core_analysis
-import flydra.analysis.result_utils as result_utils
+try:
+    import flydra.a2.core_analysis as core_analysis
+    import flydra.analysis.result_utils as result_utils
+except:
+    print 'need to import flydra if loading raw data!'
+    
 import numpy as np
 import scipy.linalg
 import time
@@ -799,7 +803,7 @@ class Trajectory:
                     self.behavior = 'landing'
                 if initial_mean_vel <= notmoving_vel and final_mean_vel >= flying_vel and initial_dist-final_dist < -0.01 and initial_dist < 0.03:
                     self.behavior = 'takeoff'
-                if min_dist_to_post < 0.03 and initial_dist > 0.04 and final_dist > 0.04:
+                if min_dist_to_post < 0.1 and initial_dist > 0.04 and final_dist > 0.04:
                     self.behavior = 'flyby'                    
                 #if initial_mean_vel <= notmoving_vel and final_mean_vel <= notmoving_vel:
                 #    self.behavior = 'walking'                                       

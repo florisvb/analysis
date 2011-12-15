@@ -65,10 +65,12 @@ import flydra_analysis as fa
 import sa1_analysis as sa1
 import numpy as np
 import floris
+import floris_math
 
 import trajectory_plots as tp
 import numpyimgproc as nim
 
+import floris_plot_lib as fpl
 
 def saccade_figure(dataset_all, dataset_flyby):
     trajec = dataset_flyby.trajecs['10_80113']
@@ -86,6 +88,12 @@ def saccade_figure(dataset_all, dataset_flyby):
     plot_saccade_speed_vs_amplitude(dataset_all, thresh=300)
     plot_turn_angle_vs_threshold(dataset_all, plot=True)
     plot_saccade_snips(dataset)
+    
+def get_n_frames(dataset):
+    n = 0
+    for k, trajec in dataset.trajecs.items():
+        n+=trajec.length
+    print 'N: ', n
 
 def plot_single_trajec_stuff(trajec):
     
@@ -144,7 +152,7 @@ def plot_histogram_ratio_saccade_to_straight(dataset):
 
         fig = plt.figure()
         ax = fig.add_axes([.2,.2,.7,.4])
-        fpl.histogram(ax, ratios_list, bins=20, bin_width_ratio=0.8, colors=['blue', 'red', 'green'], edgecolor='none', bar_alpha=1, curve_fill_alpha=0.3, curve_line_alpha=0, curve_butter_filter=[3,0.3], return_vals=False, show_smoothed=True, normed=False, normed_occurences=False, bootstrap_std=False, exponential_histogram=False, smoothing_range=(0.02, 0.6))
+        fpl.histogram(ax, ratios_list, bins=20, bin_width_ratio=0.8, colors=['blue', 'red', 'green'], edgecolor='none', bar_alpha=[.5,1,.5], curve_fill_alpha=0, curve_line_alpha=1, curve_butter_filter=[3,0.4], return_vals=False, show_smoothed=True, normed=False, normed_occurences=False, bootstrap_std=False, exponential_histogram=False, smoothing_range=(0.02, 0.6))
         ax.set_autoscale_on(False)
         ax.set_xlim([0,1])
         ax.set_ylim([0,300])
@@ -204,12 +212,26 @@ def plot_histogram_ratio_saccade_to_straight(dataset):
         
         
         
-        
-        
-        
-        
-        
-
+def calc_last_saccade(trajec):
+    trajec.last_saccade = None
+    trajec.last_saccade_range = []
+    
+    if trajec.behavior == 'landing':
+        for s, sac in enumerate(trajec.sac_ranges):
+            if sac[-1] < trajec.frame_of_landing:
+                trajec.last_saccade = s
+                trajec.last_saccade_range = sac
+            else:
+                break
+    if trajec.behavior == 'flyby':
+        for s, sac in enumerate(trajec.sac_ranges):
+            if sac[0] < trajec.frame_nearest_to_post:
+                trajec.last_saccade = s
+                trajec.last_saccade_range = sac
+            else:
+                break
+    
+    
 def saccade_vs_speed_hist(dataset):
     fig = plt.figure()
     ax = fig.add_subplot(111)
@@ -448,11 +470,15 @@ def plot_continuous_snip_correlation(dataset, behavior='straight'):
     
     
 
-def histogram_angular_velocities(dataset):
+def histogram_angular_velocities(dataset, smooth=True):
     
     angular_vels = []
-    for k, trajec in dataset.trajecs.items():   
-        angular_vels.extend(trajec.heading_smooth_diff[0:trajec.frame_of_landing])
+    for k, trajec in dataset.trajecs.items():  
+        if smooth: 
+            angular_vels.extend(trajec.heading_smooth_diff[0:trajec.frame_of_landing])
+        else:
+            heading_diff = floris_math.diffa(trajec.heading[0:trajec.frame_of_landing])
+            angular_vels.extend(heading_diff)
     angular_vels = np.array(angular_vels)*180./np.pi*100.
         
     fig = plt.figure()
@@ -621,6 +647,7 @@ def plot_saccade_speed_vs_amplitude(dataset, keys=None, thresh=300):
     fig = plt.figure()
     ax = fig.add_subplot(111)
     hist,x,y = np.histogram2d(np.abs(angles), np.abs(speeds), 300, normed=False)
+    return hist
     colorgrid.colorgrid(ax, np.log(hist.T+1), xlim=(x[0],x[-1]), ylim=(y[0],y[-1]))
     fa.adjust_spines(ax, ['left', 'bottom'])
     ax.set_ylim([0,3000])
@@ -884,13 +911,32 @@ def plot_hists_change_in_heading_straight_vs_saccade(dataset, thresh=300):
     
     nbins = 50
     bins = np.linspace(0, 180.+180./float(nbins), nbins, endpoint=True)
-    bins, data_hist_list, data_curve_list = floris.histogram(ax, [straight, saccade], bins=bins, bin_width_ratio=0.8, colors=['black', 'red'], edgecolor='none', bar_alpha=1, curve_fill_alpha=0.3, curve_line_alpha=0, curve_butter_filter=[3,0.3], return_vals=True, show_smoothed=True, normed=False, normed_occurences=True, bootstrap_std=False)
+    bins, data_hist_list, data_curve_list = fpl.histogram(ax, [straight, saccade], bins=bins, bin_width_ratio=0.8, colors=['black', 'red'], edgecolor='none', bar_alpha=1, curve_fill_alpha=0.3, curve_line_alpha=0, curve_butter_filter=[3,0.3], return_vals=True, show_smoothed=False, normed=True, normed_occurences=False, bootstrap_std=False)
+    
+    
+    # make a lognorm
+    xdata = np.linspace(.001, 180., 100)
+    mean_lognorm = np.log(40)
+    std_lognorm = np.log(2.3)
+    lognorm = np.exp(-1*( np.log( np.abs(xdata) )-mean_lognorm)**2 / (2*std_lognorm**2)) * (1/(np.abs(xdata)*np.sqrt(2*np.pi*std_lognorm**2)))
+    ax.fill_between(xdata, lognorm, np.zeros_like(lognorm), color='red', alpha=0.25, linewidth=0)
+    print np.max(lognorm)
+    
+    # make a gaussian:
+    mean_lognorm = np.log(1)
+    std_lognorm = np.log(2.3)
+    lognorm = np.exp(-1*( np.log( np.abs(xdata) )-mean_lognorm)**2 / (2*std_lognorm**2)) * (1/(np.abs(xdata)*np.sqrt(2*np.pi*std_lognorm**2)))
+    
+    lam = 0.075
+    expdist = lam*np.exp(-1*lam*xdata)
+    
+    ax.fill_between(xdata, expdist, np.zeros_like(expdist), color='black', alpha=0.25, linewidth=0)
     
     ax.set_autoscale_on(False)
     ax.set_xlim([0,180])
-    ax.set_ylim([0,1])
+    ax.set_ylim([0,.06])
     
-    fa.adjust_spines(ax, ['left', 'bottom'])
+    fpl.adjust_spines(ax, ['left', 'bottom'], xticks=[0, 45, 90, 135, 180], yticks=[0, 0.03, 0.06])
     
     ax.set_xlabel('Net heading change in flight segment')
     ax.set_ylabel('Occurences (normalized)')
@@ -938,7 +984,7 @@ def plot_hists_change_in_heading(dataset):
     
     #bins, data_hist_list, data_curve_list = floris.histogram(ax, [straight, saccade], bins=20, bin_width_ratio=0.6, colors=['black', 'red'], edgecolor='none', bar_alpha=0.7, curve_fill_alpha=0, curve_line_alpha=0, curve_butter_filter=[3,0.3], return_vals=True, show_smoothed=False, normed=False, normed_occurences=False, bootstrap_std=False)
     
-    bins, data_hist_list, data_curve_list = fpl.histogram(ax, saccade_ratio_list, bins=25, bin_width_ratio=0.8, colors=['blue', 'red', 'green'], edgecolor='none', bar_alpha=1, curve_fill_alpha=0.3, curve_line_alpha=0, curve_butter_filter=[3,0.3], return_vals=True, show_smoothed=True, normed=False, normed_occurences=False, bootstrap_std=False, smoothing_range=(0.1, 1.0))
+    bins, data_hist_list, data_curve_list = fpl.histogram(ax, saccade_ratio_list, bins=25, bin_width_ratio=0.8, colors=['blue', 'red', 'green'], edgecolor='none', bar_alpha=[0.5,1,0.5], curve_fill_alpha=0, curve_line_alpha=1, curve_butter_filter=[3,0.4], return_vals=True, show_smoothed=True, normed=False, normed_occurences=False, bootstrap_std=False, smoothing_range=(0.1, 1.0))
     
     print bins
     
@@ -975,8 +1021,12 @@ def get_angle_of_saccade(trajec, sac_range, method='integral', smoothed=True):
         return signed_angleofsaccade
     
     else:
-        if smoothed is False:
-            return np.sum(trajec.heading_smooth_diff[sac_range])*-1
+        if smoothed is True:
+        
+            amplitude = np.sum( np.abs(trajec.heading_smooth_diff[sac_range]) )
+            sign = np.mean( np.sign(trajec.heading_smooth_diff[sac_range]) )
+        
+            return amplitude*sign*-1
         else:
             return np.sum( floris.diffa(trajec.heading)[sac_range])*-1
             
