@@ -128,7 +128,7 @@ def crash_analysis(dataset, dataset_landing, keys=None):
         color = 'gray'
         dotcolor = 'blue'
         if key == '20101111_C001H001S0045':
-            color = 'black'
+            color = 'purple'
             dotcolor = 'purple'
             
         if trajec.angle_at_deceleration*180/np.pi > 90:
